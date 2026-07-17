@@ -145,6 +145,40 @@ _VC_GROUP_ROW_FILLS = {
 # Main builder
 # ===================================================================
 
+
+PRIORITY_MAP = {
+    # Priority 1 (Ignored/Hold)
+    "Financial Statements": 1,
+    "Notes to Accounts": 1,
+    
+    # Priority 2
+    "Company Information": 2,
+    "Management & Governance": 2,
+    "Shareholding Information": 2,
+    "Management Discussion & Analysis": 2,
+    
+    # Priority 3
+    "Investor Information": 3,
+    "Audit Information": 3,
+    "Outlook & Guidance": 3,
+    
+    # Priority 4
+    "Financial Analysis": 4,
+    "Business Performance": 4,
+    "Risk Management": 4,
+    
+    # Priority 5
+    "Legal & Compliance": 5,
+    "Strategic Initiatives": 5,
+    
+    # Priority 6
+    "ESG & Sustainability": 6,
+    "CSR": 6,
+    
+    # Priority 7
+    "Human Resources": 7,
+}
+
 def build_excel(extraction_result: dict[str, Any]) -> bytes:
     if not HAS_OPENPYXL:
         raise ImportError("openpyxl is required for Excel export.")
@@ -175,17 +209,28 @@ def build_excel(extraction_result: dict[str, Any]) -> bytes:
     for cat, sections in categories.items():
         _build_category_sheet(wb, cat, sections, text_extractions, table_extractions)
 
-    # Build Intelligence Report sheet (Sprint 1 + Sprint 2 enhanced)
+    # Build Priority sheets (Sprint 2 / Intelligence Report equivalent)
     structured_intel = extraction_result.get("structured_intelligence", {})
     evidence_map = extraction_result.get("evidence_map", {})
     if structured_intel:
         try:
             from .workbook_population import populate_intelligence_report
-            report_rows = populate_intelligence_report(structured_intel, master_sections, evidence_map)
-            _build_intelligence_sheet(wb, report_rows)
+            priority_buckets = {}
+            for cat, subcategories in structured_intel.items():
+                priority = PRIORITY_MAP.get(cat, 2)  # Default unmapped to 2
+                if priority == 1:
+                    continue
+                if priority not in priority_buckets:
+                    priority_buckets[priority] = {}
+                priority_buckets[priority][cat] = subcategories
+
+            for priority in sorted(priority_buckets.keys()):
+                p_intel = priority_buckets[priority]
+                report_rows = populate_intelligence_report(p_intel, master_sections, evidence_map)
+                _build_intelligence_sheet(wb, report_rows, priority)
         except Exception as exc:
             import logging
-            logging.getLogger(__name__).warning(f"Failed to build intelligence sheet: {exc}")
+            logging.getLogger(__name__).warning(f"Failed to build priority sheets: {exc}")
 
     # Build Valuation Counterpart sheet (Sprint 2)
     if table_extractions or structured_intel:
@@ -204,9 +249,7 @@ def build_excel(extraction_result: dict[str, Any]) -> bytes:
             logging.getLogger(__name__).warning(f"Failed to build valuation counterpart sheet: {exc}")
 
     # Move sheets to desired order:
-    # 1. Metadata, 2. Intelligence Report, 3. Valuation Counterpart, 4. rest
-    # Use explicit index-based reordering to avoid offset calculation issues
-    priority_sheets = ["Metadata", "Intelligence Report", "Valuation Counterpart"]
+    priority_sheets = ["Metadata", "Priority 2", "Valuation Counterpart", "Priority 3", "Priority 4", "Priority 5", "Priority 6", "Priority 7"]
     for i, sheet_name in enumerate(priority_sheets):
         if sheet_name in wb.sheetnames:
             current_idx = wb.sheetnames.index(sheet_name)
@@ -228,12 +271,12 @@ def save_excel(extraction_result: dict[str, Any], path: str | Path) -> Path:
 # Intelligence Sheet Builder (Sprint 2 Enhanced)
 # ===================================================================
 
-def _build_intelligence_sheet(wb: "openpyxl.Workbook", rows: list[dict]) -> None:
-    ws = wb.create_sheet(title="Intelligence Report")
+def _build_intelligence_sheet(wb: "openpyxl.Workbook", rows: list[dict], priority: int = 2) -> None:
+    ws = wb.create_sheet(title=f"Priority {priority}")
     
     # == Title row ==
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=12)
-    title_cell = ws.cell(row=1, column=1, value="INTELLIGENCE REPORT -- Narrative Extraction Matrix")
+    title_cell = ws.cell(row=1, column=1, value=f"PRIORITY {priority} -- Narrative Extraction Matrix")
     title_cell.font = Font(name="Calibri", size=14, bold=True, color="1F4E79")
     title_cell.alignment = Alignment(horizontal="left", vertical="center")
     title_cell.fill = PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")

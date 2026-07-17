@@ -26,6 +26,27 @@ WORKBOOK_TARGETS = [
     ("Management Discussion & Analysis", "Business Review"),
     ("Management Discussion & Analysis", "Opportunities & Challenges"),
     ("Management Discussion & Analysis", "Future Outlook"),
+    
+    # Priority 3
+    ("Investor Information", "Investor Information"),
+    ("Audit Information", "Audit Information"),
+    ("Outlook & Guidance", "Outlook & Guidance"),
+    
+    # Priority 4
+    ("Financial Analysis", "Financial Analysis"),
+    ("Business Performance", "Business Performance"),
+    ("Risk Management", "Risk Management"),
+    
+    # Priority 5
+    ("Legal & Compliance", "Legal & Compliance"),
+    ("Strategic Initiatives", "Strategic Initiatives"),
+    
+    # Priority 6
+    ("ESG & Sustainability", "ESG & Sustainability"),
+    ("CSR", "CSR"),
+    
+    # Priority 7
+    ("Human Resources", "Human Resources"),
 ]
 
 # The definitive alias mapping rules (Sprint 1 narrative fields)
@@ -45,7 +66,20 @@ MAPPING_RULES = {
     "Industry Overview": ["industry overview", "industry outlook", "railway sector", "market analysis"],
     "Business Review": ["business review", "performance review", "chairman's message", "letter to shareholders"],
     "Opportunities & Challenges": ["opportunities & challenges", "risk factors", "growth drivers", "challenges", "opportunities and risks"],
-    "Future Outlook": ["future outlook", "future plans", "targets", "guidance", "outlook"]
+    "Future Outlook": ["future outlook", "future plans", "targets", "guidance", "outlook"],
+    
+    # Priorities 3-7 Mappings
+    "Investor Information": ["investor information", "shareholder info", "investor"],
+    "Audit Information": ["audit information", "auditor's report", "audit report", "auditor"],
+    "Outlook & Guidance": ["outlook & guidance", "guidance", "forward looking", "outlook"],
+    "Financial Analysis": ["financial analysis", "financial performance", "financial review"],
+    "Business Performance": ["business performance", "operational performance", "operations review"],
+    "Risk Management": ["risk management", "risks", "risk factors", "mitigation"],
+    "Legal & Compliance": ["legal & compliance", "legal", "compliance", "regulatory"],
+    "Strategic Initiatives": ["strategic initiatives", "strategy", "m&a", "expansion"],
+    "ESG & Sustainability": ["esg & sustainability", "esg", "sustainability", "environment"],
+    "CSR": ["csr", "corporate social responsibility", "social responsibility"],
+    "Human Resources": ["human resources", "hr", "employees", "people"]
 }
 
 # =====================================================================

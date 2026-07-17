@@ -614,8 +614,39 @@ def extract_subcategory_content(
           or "management discussion and analysis" in text_head or "md&a" in text_head):
         return _extract_mda(truncated_text, llm, source_page, source_section)
 
+    # --- Priorities 3-7: Advanced & Strategic Categories ---
+    # Priority 3
+    elif matches_target("Investor Information") or category == "Investor Information" or "investor" in sub_lower:
+        return _extract_investor_information(truncated_text, llm, source_page, source_section)
+    elif matches_target("Outlook & Guidance") or category == "Outlook & Guidance" or "guidance" in sub_lower:
+        return _extract_outlook_guidance(truncated_text, llm, source_page, source_section)
+        
+    # Priority 4
+    elif matches_target("Financial Analysis") or category == "Financial Analysis" or "financial analysis" in sub_lower:
+        return _extract_financial_analysis(truncated_text, llm, source_page, source_section)
+    elif matches_target("Business Performance") or category == "Business Performance" or "performance" in sub_lower:
+        return _extract_business_performance(truncated_text, llm, source_page, source_section)
+    elif matches_target("Risk Management") or category == "Risk Management" or "risk" in sub_lower:
+        return _extract_risk_management(truncated_text, llm, source_page, source_section)
+
+    # Priority 5
+    elif matches_target("Legal & Compliance") or category == "Legal & Compliance" or "legal" in sub_lower or "compliance" in sub_lower:
+        return _extract_legal_compliance(truncated_text, llm, source_page, source_section)
+    elif matches_target("Strategic Initiatives") or category == "Strategic Initiatives" or "strategic" in sub_lower:
+        return _extract_strategic_initiatives(truncated_text, llm, source_page, source_section)
+
+    # Priority 6
+    elif matches_target("ESG & Sustainability") or category == "ESG & Sustainability" or "esg" in sub_lower or "sustainability" in sub_lower:
+        return _extract_esg_sustainability(truncated_text, llm, source_page, source_section)
+    elif matches_target("CSR") or category == "CSR" or "corporate social responsibility" in sub_lower or "csr" in sub_lower:
+        return _extract_csr(truncated_text, llm, source_page, source_section)
+
+    # Priority 7
+    elif matches_target("Human Resources") or category == "Human Resources" or "human resource" in sub_lower or "employee" in sub_lower:
+        return _extract_human_resources(truncated_text, llm, source_page, source_section)
+
     # --- Sprint 2: Audit / Financial Metadata ---
-    elif "auditor" in sub_lower or "audit report" in sub_lower or "auditor's report" in text_head:
+    elif "auditor" in sub_lower or "audit report" in sub_lower or "auditor's report" in text_head or category == "Audit Information":
         return _extract_auditor_report(truncated_text, llm, source_page, source_section)
     elif "segment" in sub_lower or "segment information" in text_head or "segment reporting" in text_head:
         return _extract_segment_info(truncated_text, llm, source_page, source_section)
@@ -1424,6 +1455,319 @@ Output JSON object:
 """
     result = _extract_json_from_llm(llm, prompt)
     value = result if isinstance(result, dict) else {"forex_earnings": "", "exporter_flag": False}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+# =====================================================================
+# Priorities 3-7 Extractors
+# =====================================================================
+
+def _extract_investor_information(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a financial analyst. Extract Investor Information from the text.
+Output a JSON object with:
+- "stock_exchanges": list of strings (where the company is listed)
+- "market_capitalization": string (if disclosed)
+- "pe_ratio": string (if disclosed)
+- "eps": string (Earnings Per Share, if disclosed)
+- "registrar": string (Registrar & Transfer Agent name)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_outlook_guidance(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a financial analyst. Extract Outlook & Guidance from the text.
+Output a JSON object with:
+- "revenue_guidance": string (forward-looking revenue projections)
+- "margin_guidance": string (forward-looking margin/profit projections)
+- "capex_guidance": string (capital expenditure plans)
+- "key_growth_drivers": list of strings (factors driving future growth)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_financial_analysis(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a financial analyst. Extract Financial Analysis highlights.
+Output a JSON object with:
+- "revenue_growth": string (percentage or value)
+- "ebitda_margin": string
+- "net_profit_margin": string
+- "debt_to_equity": string
+- "roce": string (Return on Capital Employed)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_business_performance(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a financial analyst. Extract Business Performance highlights.
+Output a JSON object with:
+- "production_volume": string (if applicable)
+- "sales_volume": string (if applicable)
+- "capacity_utilization": string
+- "key_operational_achievements": list of strings
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_risk_management(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a risk analyst. Extract Risk Management information.
+Output a JSON object with:
+- "key_risks": list of strings (major risks identified)
+- "mitigation_strategies": list of strings (how risks are managed)
+- "risk_management_framework": string (brief description of framework)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_legal_compliance(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a compliance officer. Extract Legal & Compliance information.
+Output a JSON object with:
+- "pending_litigations": list of strings (major legal cases or disputes)
+- "regulatory_actions": list of strings (fines, penalties, notices)
+- "compliance_status": string (summary of adherence to laws)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_strategic_initiatives(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a strategy analyst. Extract Strategic Initiatives.
+Output a JSON object with:
+- "mergers_and_acquisitions": list of strings (M&A activity)
+- "expansion_plans": list of strings (new markets, facilities)
+- "digital_transformation": list of strings (IT, automation initiatives)
+- "r_and_d_initiatives": list of strings (Research and Development)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_esg_sustainability(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are an ESG analyst. Extract ESG & Sustainability information.
+Output a JSON object with:
+- "environmental_initiatives": list of strings (emissions reduction, water conservation, etc.)
+- "renewable_energy_share": string (percentage or MW if disclosed)
+- "sustainability_goals": list of strings (future targets, net-zero goals)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_csr(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are a CSR analyst. Extract Corporate Social Responsibility (CSR) details.
+Output a JSON object with:
+- "csr_expenditure": string (amount spent on CSR)
+- "key_csr_projects": list of strings (education, healthcare, rural development)
+- "beneficiaries": string (number of people impacted, if disclosed)
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
+    return EvidenceBackedResult(
+        value=value,
+        evidence=ExtractionEvidence(
+            source_page=source_page,
+            source_section=source_section,
+            source_text_snippet=text[:200],
+            extraction_method="llm",
+            confidence=0.70,
+        ),
+    )
+
+
+def _extract_human_resources(
+    text: str, llm: Any,
+    source_page: int | None = None,
+    source_section: str = "",
+) -> EvidenceBackedResult | None:
+    prompt = f"""You are an HR analyst. Extract Human Resources metrics and information.
+Output a JSON object with:
+- "total_employees": string (number of permanent/total employees)
+- "attrition_rate": string (percentage, if disclosed)
+- "training_hours": string (total or per employee)
+- "diversity_metrics": dict mapping metric to value (e.g., "women_percentage": "15%")
+- "key_hr_initiatives": list of strings
+
+Text:
+{text}
+
+Output JSON object:
+"""
+    result = _extract_json_from_llm(llm, prompt)
+    value = result if isinstance(result, dict) else {}
     return EvidenceBackedResult(
         value=value,
         evidence=ExtractionEvidence(

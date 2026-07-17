@@ -354,7 +354,7 @@ for name in wb.sheetnames:
     print(f'  {name}: {ws.max_row} rows x {ws.max_column} cols')
 
 # Verify Intelligence Report has 12 columns (9 original + 3 evidence)
-intel_ws = wb["Intelligence Report"]
+intel_ws = wb["Priority 2"]
 assert intel_ws.max_column == 12, f"Expected 12 columns, got {intel_ws.max_column}"
 print(f'  Intelligence Report columns: {intel_ws.max_column} (9 original + 3 evidence)')
 
