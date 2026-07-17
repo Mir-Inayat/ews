@@ -1142,8 +1142,6 @@ def vlm_extract_all(
         "consolidated": {},
     }
 
-    mock_mode_done = False
-
     for entity in ("standalone", "consolidated"):
         entity_pages = pages_map[entity]
         if not entity_pages:
@@ -1152,16 +1150,9 @@ def vlm_extract_all(
         _log(f"[VLM] Processing {entity} statements...")
 
         for stmt_key in _STMT_KEYS:
-            # ── MOCK MODE (TEMPORARY) ──
-            if mock_mode_done:
-                continue
-
             page_nums = entity_pages.get(stmt_key, [])
             if not page_nums:
                 continue
-
-            mock_mode_done = True
-            _log(f"[VLM] MOCK MODE: Processing ONLY {entity}_{stmt_key} to avoid rate limits.")
 
             _log(f"[VLM]   Rendering {stmt_key} pages {page_nums}...")
             try:

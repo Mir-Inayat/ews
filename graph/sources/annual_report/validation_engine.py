@@ -363,6 +363,9 @@ def compute_quality_report(
         if section.get("category") in (
             "Financial Statements", "Notes to Accounts",
             "Shareholding Information", "Related Party Transactions",
+        ) or section.get("section_type") in (
+            "Financial Statements", "Notes to Accounts",
+            "Shareholding Information", "Related Party Transactions",
         ):
             financial_page_ranges.append(
                 (section.get("start_page", 0), section.get("end_page", 0))
