@@ -1017,13 +1017,18 @@ def _extract_company_profile(
             snippet = _capture_evidence_snippet(text, office_match)
 
     # Step 4: LLM for remaining fields (business_description, certifications)
+    # Only ask LLM for fields NOT already deterministically extracted
     llm_prompt = f"""Extract the Company Profile details from the text.
+Exclude incorporation year and CIN if they are already found via other methods.
 Output a JSON object with:
-- "incorporation": string (year or details)
 - "business_description": string (short summary)
 - "manufacturing_locations": list of strings
 - "certifications": list of strings
+"""
+    if "incorporation" not in result:
+        llm_prompt += "- \"incorporation\": string (year or details)\n"
 
+    llm_prompt += f"""
 Text:
 {text}
 
@@ -1086,11 +1091,15 @@ def _extract_products_services(
     source_section: str = "",
 ) -> EvidenceBackedResult | None:
     """Extract products and services."""
-    prompt = f"""Extract the Products & Services from the text.
-Output a JSON object with:
-- "product_list": list of strings
-- "offerings": list of strings
-- "services": list of strings
+    prompt = f"""You are analyzing the Products & Services section of an Indian company annual report.
+Extract the following into a JSON object:
+- "product_list": list of strings (specific product names, e.g., "TMT Bars", "Structural Steel", "Wire Rods")
+- "service_list": list of strings (specific service names if any)
+- "business_verticals": list of strings (e.g., "Steel", "Power", "Infrastructure")
+- "key_customers": list of strings (if customer segments are mentioned, e.g., "Railways", "Construction")
+- "revenue_by_vertical": dict mapping vertical name to revenue figure as string (if disclosed)
+
+If a field is not found, use an empty list or null. Do NOT fabricate data.
 
 Text:
 {text}

@@ -340,9 +340,7 @@ def run_full_extraction(
             text_content = best_source.get("extracted_text", "")
             src_page = best_source.get("start_page")
             
-            # Skip financial sections for text extraction
-            if "financial" in src_cat.lower() or "notes to accounts" in src_cat.lower():
-                continue
+            # Removed financial sections skip filter (Gap 7)
             
             # FIX 4: If this is a governance field and the source is a governance section,
             # use multi-extract to get Board + KMP + Committees + Corp Gov all at once.
@@ -696,6 +694,7 @@ def run_full_extraction(
         "validation_report": validation_report.model_dump(),
         "structured_intelligence": structured_intelligence,
         "evidence_map": evidence_map,
+        "raw_pages_text": all_pages,
         "standalone": legacy_result.get("standalone", {}),
         "consolidated": legacy_result.get("consolidated", {}),
         "consolidation_stats": {

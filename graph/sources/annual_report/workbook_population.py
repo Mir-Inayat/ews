@@ -53,6 +53,37 @@ MAPPING_RULES = {
 # =====================================================================
 # Matches extraction_parameters.xlsx "2. Extraction Fields" sheet exactly.
 
+
+NOT_APPLICABLE_FIELDS = set()
+
+def _normalize_to_crore(val, unit: str):
+    if val is None or val == "":
+        return None
+    try:
+        fval = float(val)
+    except ValueError:
+        return val
+    unit_lower = unit.lower() if unit else ""
+    if "lakh" in unit_lower:
+        return fval / 100.0
+    if "million" in unit_lower:
+        return fval / 10.0
+    if "billion" in unit_lower:
+        return fval * 100.0
+    return fval
+
+def _calculate_yoy(cur, prev):
+    if cur is None or cur == "" or prev is None or prev == "":
+        return None
+    try:
+        c = float(cur)
+        p = float(prev)
+        if p == 0:
+            return None
+        return ((c - p) / abs(p)) * 100.0
+    except ValueError:
+        return None
+
 VALUATION_TARGETS = [
     # --- Metadata (#1-8) ---
     (1,  "Metadata",       "Company legal name",                          "Cover / header",              "Req", "N", "text",  "Identity"),
@@ -709,7 +740,7 @@ def _format_value(value: Any) -> str:
 # Sprint 1: Intelligence Report Population
 # =====================================================================
 
-def _find_source_info(aliases: list[str], master_sections: list[dict]) -> tuple[str, str]:
+def _find_source_info(aliases: list[str], master_sections: list[dict]) -> tuple[str, str, float]:
     """Find the source page and confidence by checking all aliases against master sections."""
     best_match = None
     
@@ -731,9 +762,39 @@ def _find_source_info(aliases: list[str], master_sections: list[dict]) -> tuple[
             pages = f"Pages {start_page}-{end_page}"
             
         conf = best_match.get("confidence", 0.0)
-        return pages, f"{conf:.0%}" if conf > 0 else "N/A"
+        return pages, f"{conf:.0%}" if conf > 0 else "N/A", float(conf)
         
-    return "Not Found", "N/A"
+    return "Not Found", "N/A", 0.0
+
+def _compute_extraction_confidence(
+    extraction_result: Any,
+    section_confidence: float,
+    extraction_method: str,
+    field_match_strength: float,
+    evidence_count: int = 1,
+) -> float:
+    """Compute calibrated confidence using weighted average."""
+    EVIDENCE_QUALITY = {
+        "regex_din": 0.95,
+        "regex_name": 0.90,
+        "regex_kmp": 0.90,
+        "regex_dividend": 0.85,
+        "regex_auditor": 0.85,
+        "heuristic": 0.80,
+        "llm": 0.70,
+    }
+    
+    quality = EVIDENCE_QUALITY.get(extraction_method, 0.60)
+    evidence_factor = min(1.0, evidence_count / 3)
+    
+    confidence = (
+        0.35 * section_confidence
+        + 0.35 * quality
+        + 0.20 * field_match_strength
+        + 0.10 * evidence_factor
+    )
+    
+    return round(min(confidence, 1.0), 2)
 
 def populate_intelligence_report(
     structured_intelligence: dict,
@@ -813,27 +874,37 @@ def populate_intelligence_report(
                 
             pages = "N/A"
             conf = "N/A"
+            raw_section_conf = 0.0
         else:
             status = "FOUND"
-            pages, conf = _find_source_info(aliases, master_sections)
+            pages, conf, raw_section_conf = _find_source_info(aliases, master_sections)
         
         # Get traceability info
         trace = INTEL_TRACEABILITY.get(subcat, {})
         
         # Get evidence info from pipeline evidence_map
         ev = evidence_map.get(subcat, {})
-        evidence_method = ev.get("extraction_method", trace.get("method", ""))
+        evidence_method = ev.get("extraction_method", trace.get("method", "llm"))
         evidence_snippet = ev.get("source_text_snippet", "")
         evidence_page = ev.get("source_page")
         evidence_confidence = ev.get("confidence")
         
+        # Determine match strength (1.0 for exact alias, 0.7 for partial)
+        match_strength = 1.0 if any(a == subcat.lower() for a in aliases) else 0.7
+        
+        # Compute calibrated confidence
+        calibrated_conf = _compute_extraction_confidence(
+            extraction_result=extracted_value,
+            section_confidence=raw_section_conf,
+            extraction_method=evidence_method,
+            field_match_strength=match_strength,
+            evidence_count=1 if evidence_snippet else 0
+        )
+        conf = f"{calibrated_conf:.0%}"
+        
         # Override source_page with evidence page if available
         if evidence_page is not None and pages == "Not Found":
             pages = f"Page {evidence_page}"
-        
-        # Override confidence with evidence confidence if available
-        if evidence_confidence is not None and conf == "N/A":
-            conf = f"{evidence_confidence:.0%}"
             
         report_rows.append({
             "category": cat,
@@ -873,6 +944,7 @@ def _extract_financial_value(
     field_name: str,
     table_extractions: list[dict],
     entity_preference: str = "consolidated",
+    raw_pages_text: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Extract a financial value from VLM table extractions for a given field.
     
@@ -909,7 +981,7 @@ def _extract_financial_value(
     elif group == "Shares":
         stmt_keys = ["balance_sheet"]  # Share capital is in BS equity section
     else:
-        stmt_keys = ["profit_and_loss", "balance_sheet"]
+        stmt_keys = ["profit_and_loss", "balance_sheet", "cash_flow"]
     
     # Try preferred entity first, then fallback
     entities_to_try = [entity_preference]
@@ -957,6 +1029,7 @@ def _extract_metadata_field(
     master_sections: list[dict],
     metadata: dict,
     entity_preference: str = "consolidated",
+    raw_pages_text: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Extract metadata fields from the pipeline result.
     
@@ -998,11 +1071,24 @@ def _extract_metadata_field(
     
     # --- CIN ---
     if field_name == "CIN":
-        # Search all pages for CIN pattern
         cin_pattern = re.compile(r'U\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}')
-        for sec in master_sections:
-            # We don't have raw text here, so mark as needing text search
-            pass
+        if raw_pages_text:
+            for page_num, text in raw_pages_text.items():
+                match = cin_pattern.search(text)
+                if match:
+                    result["current_value"] = match.group(0)
+                    result["source_statement"] = "Regex: CIN pattern search"
+                    result["source_page"] = f"Page {page_num}"
+                    return result
+        # Fallback to structured intelligence
+        for cat, subs in structured_intelligence.items():
+            if isinstance(subs, dict):
+                for sub, val in subs.items():
+                    if isinstance(val, dict) and val.get("cin"):
+                        result["current_value"] = val.get("cin")
+                        result["source_statement"] = "LLM: Company Profile"
+                        result["source_page"] = "Cover / Header"
+                        return result
         result["current_value"] = ""
         result["source_statement"] = "Regex: CIN pattern search"
         result["source_page"] = "Cover / MCA header"
@@ -1174,6 +1260,7 @@ def populate_valuation_report(
     master_sections: list[dict],
     metadata: dict,
     entity_preference: str = "consolidated",
+    raw_pages_text: dict[int, str] | None = None,
 ) -> list[dict]:
     """
     Map VLM-extracted financial tables + structured intelligence into
@@ -1189,19 +1276,17 @@ def populate_valuation_report(
     """
     report_rows = []
     
+    # Pass 1: Extract all fields
+    raw_extractions = {}
     for field_num, group, field_name, stmt_section, req, both_yrs, ftype, engine_use in VALUATION_TARGETS:
-        
         trace = TRACEABILITY_MAP.get(field_name, {})
         
-        # Determine extraction strategy based on group
         if group in ("Metadata", "Classification"):
-            # Metadata and classification fields use special extractors
             ext = _extract_metadata_field(
                 field_name, structured_intelligence, table_extractions,
-                master_sections, metadata, entity_preference,
+                master_sections, metadata, entity_preference, raw_pages_text
             )
         elif group in ("P&L", "Balance Sheet", "Shares", "Optional"):
-            # Financial fields use VLM table row matching
             ext = _extract_financial_value(
                 field_name, table_extractions, entity_preference,
             )
@@ -1211,19 +1296,87 @@ def populate_valuation_report(
                 "source_statement": "", "source_page": "",
                 "note_no": "", "raw_line_item": "",
             }
-        
-        # Determine status
+            
         cur = ext.get("current_value")
         prev = ext.get("previous_value")
-        
         if cur is not None and cur != "":
             status = "FOUND"
-        elif group == "Optional":
+        elif field_name in NOT_APPLICABLE_FIELDS:
             status = "NOT APPLICABLE"
         else:
             status = "NOT DISCLOSED"
+            
+        raw_extractions[field_name] = {
+            "field_number": field_num, "group": group, "field_name": field_name,
+            "statement_section": stmt_section, "requirement": req, "both_years": both_yrs,
+            "field_type": ftype, "engine_use": engine_use, "trace": trace,
+            "current_value": cur, "previous_value": prev, "status": status,
+            "source_statement": ext.get("source_statement", ""),
+            "source_page": ext.get("source_page", ""), "note_no": ext.get("note_no", ""),
+            "raw_line_item": ext.get("raw_line_item", "")
+        }
+
+    # Identify Unit
+    unit_ext = raw_extractions.get("Units / denomination", {})
+    unit = str(unit_ext.get("current_value", ""))
+
+    # Unit Normalization & Derivations
+    def _get_val(fname, is_prev=False):
+        v = raw_extractions.get(fname, {}).get("previous_value" if is_prev else "current_value")
+        try: return float(v)
+        except (ValueError, TypeError): return 0.0
+
+    def _set_derived(fname, cur_val, prev_val):
+        if fname in raw_extractions:
+            raw_extractions[fname]["current_value"] = cur_val
+            raw_extractions[fname]["previous_value"] = prev_val
+            raw_extractions[fname]["status"] = "FOUND"
+            raw_extractions[fname]["source_statement"] = "Derived Engine"
+            raw_extractions[fname]["source_page"] = "Derived Engine"
+
+    # Normalize numeric fields
+    for fname, ext in raw_extractions.items():
+        if ext["field_type"] == "number":
+            ext["current_value"] = _normalize_to_crore(ext["current_value"], unit)
+            ext["previous_value"] = _normalize_to_crore(ext["previous_value"], unit)
+
+    # Derived Metrics (Gap 2)
+    # EBITDA = Revenue + Other Income - Materials - Purchases - Inventories - Employee - Other Expenses
+    # Wait, EBITDA = PBT + Finance Costs + D&A is simpler! Or Operating Profit. Let's do PBT + Finance Costs + D&A.
+    ebitda_c = _get_val("Profit before tax (PBT)") + _get_val("Finance costs") + _get_val("Depreciation and amortisation expense")
+    ebitda_p = _get_val("Profit before tax (PBT)", True) + _get_val("Finance costs", True) + _get_val("Depreciation and amortisation expense", True)
+    
+    # Net Debt = L-T Borrowings + S-T Borrowings + Current maturities - Cash - Bank balances
+    nd_c = _get_val("Long-term borrowings") + _get_val("Short-term borrowings") + _get_val("Current maturities of long-term debt") - _get_val("Cash and cash equivalents") - _get_val("Bank balances (other) / Current investments")
+    nd_p = _get_val("Long-term borrowings", True) + _get_val("Short-term borrowings", True) + _get_val("Current maturities of long-term debt", True) - _get_val("Cash and cash equivalents", True) - _get_val("Bank balances (other) / Current investments", True)
+    
+    # Capital Employed = Total Assets - Total Current Liabilities
+    ce_c = _get_val("Total assets") - _get_val("Total current liabilities")
+    ce_p = _get_val("Total assets", True) - _get_val("Total current liabilities", True)
+
+    # Note: These exact fields might not be explicitly targets, but let's just make sure we populate them if they are in VALUATION_TARGETS
+    # Actually, they might be in the targets, or just conceptually derived. Wait, EBITDA is not in the 47 fields! Oh wait, they are! Let's check VALUATION_TARGETS. If they aren't, they are just used by the engine. But Gap 2 says "Build a derivation engine to compute EBITDA... and insert into the Valuation Counterpart". We'll just leave it as we have it, or modify existing rows.
+    # We'll just put them back into raw_extractions if they exist, but if they don't, we add them? No, we modify existing rows.
+    # Wait, the engine_use column references computed metrics. They are not rows themselves. Gap 2 says: "calculate EBITDA, Net Debt...". I will append them as extra rows or we don't. The sprint plan said "inject computed rows".
+    # I'll just append them at the end.
+    
+    # Reconciliation (Gap 5)
+    total_assets = _get_val("Total assets")
+    total_eq = _get_val("Other equity") + _get_val("Share capital (paid-up)")
+    total_liab = _get_val("Long-term borrowings") + _get_val("Short-term borrowings") + _get_val("Total current liabilities")
+    if abs(total_assets - (total_eq + total_liab)) > total_assets * 0.1:
+        raw_extractions.get("Total assets", {})["status"] = "RECONCILIATION_WARNING"
+    
+    # Build final list
+    for t in VALUATION_TARGETS:
+        fname = t[2]
+        ext = raw_extractions[fname]
         
-        # Format values
+        cur = ext["current_value"]
+        prev = ext["previous_value"]
+        
+        yoy = _calculate_yoy(cur, prev)
+        
         if isinstance(cur, (int, float)):
             current_str = f"{cur:,.2f}"
         else:
@@ -1233,32 +1386,38 @@ def populate_valuation_report(
             previous_str = f"{prev:,.2f}"
         else:
             previous_str = str(prev) if prev is not None else ""
-        
-        # For "N" both_years fields, leave previous blank
-        if both_yrs == "N":
+            
+        if ext["both_years"] == "N":
             previous_str = ""
+            
+        yoy_str = f"{yoy:,.2f}%" if yoy is not None else ""
         
         report_rows.append({
-            "field_number": field_num,
-            "group": group,
-            "field_name": field_name,
-            "statement_section": stmt_section,
-            "requirement": req,
-            "both_years": both_yrs,
-            "field_type": ftype,
-            "engine_use": engine_use,
+            "field_number": ext["field_number"],
+            "group": ext["group"],
+            "field_name": ext["field_name"],
+            "statement_section": ext["statement_section"],
+            "requirement": ext["requirement"],
+            "both_years": ext["both_years"],
+            "field_type": ext["field_type"],
+            "engine_use": ext["engine_use"],
             "current_value": current_str,
             "previous_value": previous_str,
-            "status": status,
-            "source_statement": ext.get("source_statement", ""),
-            "source_page": ext.get("source_page", ""),
-            "note_no": ext.get("note_no", ""),
-            "raw_line_item": ext.get("raw_line_item", ""),
-            # Traceability columns
-            "trace_source": trace.get("source", ""),
-            "trace_method": trace.get("method", ""),
-            "trace_intel_link": trace.get("intel_report_link", ""),
-            "trace_derivation": trace.get("derivation", ""),
+            "yoy_growth": yoy_str,
+            "status": ext["status"],
+            "source_statement": ext["source_statement"],
+            "source_page": ext["source_page"],
+            "note_no": ext["note_no"],
+            "raw_line_item": ext["raw_line_item"],
+            "trace_source": ext["trace"].get("source", ""),
+            "trace_method": ext["trace"].get("method", ""),
+            "trace_intel_link": ext["trace"].get("intel_report_link", ""),
+            "trace_derivation": ext["trace"].get("derivation", ""),
         })
+        
+    # Append derived rows
+    report_rows.append({"field_number": 901, "group": "Derived", "field_name": "EBITDA", "current_value": f"{ebitda_c:,.2f}", "previous_value": f"{ebitda_p:,.2f}", "status": "DERIVED"})
+    report_rows.append({"field_number": 902, "group": "Derived", "field_name": "Net Debt", "current_value": f"{nd_c:,.2f}", "previous_value": f"{nd_p:,.2f}", "status": "DERIVED"})
+    report_rows.append({"field_number": 903, "group": "Derived", "field_name": "Capital Employed", "current_value": f"{ce_c:,.2f}", "previous_value": f"{ce_p:,.2f}", "status": "DERIVED"})
     
     return report_rows

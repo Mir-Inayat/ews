@@ -196,6 +196,7 @@ def build_excel(extraction_result: dict[str, Any]) -> bytes:
                 structured_intelligence=structured_intel,
                 master_sections=master_sections,
                 metadata=metadata,
+                raw_pages_text=extraction_result.get("raw_pages_text"),
             )
             _build_valuation_counterpart_sheet(wb, valuation_rows)
         except Exception as exc:
@@ -379,7 +380,7 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
     ws = wb.create_sheet(title="Valuation Counterpart")
     
     # == Title row ==
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=18)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=20)
     title_cell = ws.cell(row=1, column=1, value="VALUATION COUNTERPART -- 47-Parameter Extraction Matrix")
     title_cell.font = Font(name="Calibri", size=14, bold=True, color="2F5496")
     title_cell.alignment = Alignment(horizontal="left", vertical="center")
@@ -387,7 +388,7 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
     ws.row_dimensions[1].height = 30
     
     # == Subtitle / legend row ==
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=18)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=20)
     legend_cell = ws.cell(row=2, column=1,
         value="RAW reported line items from filed statements (Ind AS / Schedule III). Engine derives all ratios. "
               "Green = FOUND | Red = NOT DISCLOSED | Yellow = NOT APPLICABLE")
@@ -411,6 +412,7 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
         ("Feeds (engine use)", 30),
         ("Current Year Value", 18),
         ("Previous Year Value", 18),
+        ("YoY Growth %", 14),
         ("Status", 16),
         ("Source Statement", 22),
         ("Source Page", 12),
@@ -431,14 +433,16 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
         c.border = _BORDER_THIN
     
     # Traceability sub-headers (columns 16-19) get olive green
-    for col_idx in range(16, 20):
+    for col_idx in range(17, 21):
         c = ws.cell(row=header_row, column=col_idx)
         c.font = _FONT_TRACE_HEADER
         c.fill = _FILL_VC_TRACE_HEADER
     
     # == Data rows ==
     current_group = None
-    for row_idx, r in enumerate(rows, 4):
+    write_row = 4
+    for r in rows:
+        row_idx = write_row
         group = r.get("group", "")
         field_num = r.get("field_number", "")
         status = r.get("status", "")
@@ -451,22 +455,22 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
             group_fill = _VC_GROUP_HEADER_FILLS.get(group, _FILL_VC_HEADER)
             group_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
             
-            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=19)
+            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=20)
             group_cell = ws.cell(row=row_idx, column=1, value=f"  >> {group}")
             group_cell.font = group_font
             group_cell.fill = group_fill
             group_cell.alignment = Alignment(horizontal="left", vertical="center")
             group_cell.border = _BORDER_THIN
-            for c in range(2, 20):
+            for c in range(2, 21):
                 ws.cell(row=row_idx, column=c).fill = group_fill
                 ws.cell(row=row_idx, column=c).border = _BORDER_THIN
             ws.row_dimensions[row_idx].height = 22
-            row_idx += 1
+            write_row += 1
+            row_idx = write_row
         
         # Row fill based on group
         row_fill = _VC_GROUP_ROW_FILLS.get(group)
         
-        # Field number
         c = ws.cell(row=row_idx, column=1, value=field_num)
         c.alignment = _ALIGN_CENTER
         c.border = _BORDER_THIN
@@ -558,7 +562,15 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
                 pass
         
         # Status (color-coded)
-        c = ws.cell(row=row_idx, column=11, value=status)
+        # YoY Growth %
+        c = ws.cell(row=row_idx, column=11, value=r.get("yoy_growth", ""))
+        c.alignment = _ALIGN_RIGHT
+        c.border = _BORDER_THIN
+        if row_fill:
+            c.fill = row_fill
+            
+        # Status (color-coded)
+        c = ws.cell(row=row_idx, column=12, value=status)
         c.alignment = _ALIGN_CENTER
         c.border = _BORDER_THIN
         if status == "FOUND":
@@ -572,28 +584,28 @@ def _build_valuation_counterpart_sheet(wb: "openpyxl.Workbook", rows: list[dict]
             c.font = _FONT_NOT_APPLICABLE
         
         # Source statement
-        c = ws.cell(row=row_idx, column=12, value=r.get("source_statement", ""))
+        c = ws.cell(row=row_idx, column=13, value=r.get("source_statement", ""))
         c.alignment = _ALIGN_LEFT
         c.border = _BORDER_THIN
         
         # Source page
-        c = ws.cell(row=row_idx, column=13, value=r.get("source_page", ""))
+        c = ws.cell(row=row_idx, column=14, value=r.get("source_page", ""))
         c.alignment = _ALIGN_CENTER
         c.border = _BORDER_THIN
         
         # Note no
-        c = ws.cell(row=row_idx, column=14, value=r.get("note_no", ""))
+        c = ws.cell(row=row_idx, column=15, value=r.get("note_no", ""))
         c.alignment = _ALIGN_CENTER
         c.border = _BORDER_THIN
         
         # Raw line item
-        c = ws.cell(row=row_idx, column=15, value=r.get("raw_line_item", ""))
+        c = ws.cell(row=row_idx, column=16, value=r.get("raw_line_item", ""))
         c.alignment = _ALIGN_LEFT
         c.border = _BORDER_THIN
         
         # == Traceability columns (16-19) ==
         for col_idx, key in enumerate(
-            ["trace_source", "trace_method", "trace_intel_link", "trace_derivation"], 16
+            ["trace_source", "trace_method", "trace_intel_link", "trace_derivation"], 17
         ):
             c = ws.cell(row=row_idx, column=col_idx, value=r.get(key, ""))
             c.alignment = _ALIGN_TOP_LEFT
