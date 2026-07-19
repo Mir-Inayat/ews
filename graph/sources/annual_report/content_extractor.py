@@ -18,6 +18,7 @@ from typing import Any, Optional
 from pydantic import BaseModel
 
 from .llm_utils import llm_call_with_retry
+from .rag_chunker import get_relevant_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -68,52 +69,52 @@ def _capture_evidence_snippet(text: str, match: re.Match, context_chars: int = 5
 
 class BoardMember(BaseModel):
     """Canonical schema for a board director."""
-    name: str = ""
-    designation: str = ""
-    type: str = ""           # "Executive", "Non-Executive", "Independent"
-    din: str = ""            # Director Identification Number
-    appointment_date: str = ""
+    name: Optional[str] = None
+    designation: Optional[str] = None
+    type: Optional[str] = None           # "Executive", "Non-Executive", "Independent"
+    din: Optional[str] = None            # Director Identification Number
+    appointment_date: Optional[str] = None
     source_page: int | None = None
 
 
 class KMPEntry(BaseModel):
     """Canonical schema for a Key Management Personnel entry."""
-    name: str = ""
-    designation: str = ""
-    din: str = ""
+    name: Optional[str] = None
+    designation: Optional[str] = None
+    din: Optional[str] = None
     source_page: int | None = None
 
 
 class CommitteeEntry(BaseModel):
     """Canonical schema for a board committee."""
-    name: str = ""
-    chairperson: str = ""
+    name: Optional[str] = None
+    chairperson: Optional[str] = None
     members_count: int | None = None
     meetings_held: int | None = None
 
 
 class SubsidiaryEntry(BaseModel):
     """Canonical schema for a subsidiary / associate / JV."""
-    name: str = ""
-    country: str = ""
+    name: Optional[str] = None
+    country: Optional[str] = None
     ownership_pct: float | None = None
-    entity_type: str = ""    # "Subsidiary", "Associate", "Joint Venture"
+    entity_type: Optional[str] = None    # "Subsidiary", "Associate", "Joint Venture"
 
 
 class DividendEntry(BaseModel):
     """Canonical schema for a dividend declaration."""
-    dividend_per_share: str = ""
-    dividend_pct: str = ""
-    fiscal_year: str = ""
-    declaration_date: str = ""
+    dividend_per_share: Optional[str] = None
+    dividend_pct: Optional[str] = None
+    fiscal_year: Optional[str] = None
+    declaration_date: Optional[str] = None
 
 
 class AuditorEntry(BaseModel):
     """Canonical schema for auditor information."""
-    auditor_name: str = ""
-    auditor_opinion: str = ""
+    auditor_name: Optional[str] = None
+    auditor_opinion: Optional[str] = None
     key_audit_matters: list[str] = []
-    emphasis_of_matter: str = ""
+    emphasis_of_matter: Optional[str] = None
 
 
 # =====================================================================
@@ -551,8 +552,8 @@ def extract_subcategory_content(
     Returns an :class:`EvidenceBackedResult` with structured data and
     evidence chain, or ``None`` if no extractor matches.
     """
-    # Truncate text to avoid massive token costs/limits
-    truncated_text = text[:20000]
+    # Use RAG/Semantic Chunking to avoid massive token costs while preserving relevance
+    truncated_text = get_relevant_chunks(text, subcategory, top_k=5)
 
     sub_lower = subcategory.lower()
 
@@ -579,73 +580,95 @@ def extract_subcategory_content(
 
     text_head = truncated_text.lower()[:500]
 
-    # --- Governance ---
-    if matches_target("Board of Directors") or (category == "Management & Governance" and "board" in sub_lower) or "board of directors" in text_head:
+    # Explicit Target Routing (Strict matching first to avoid schema bleeding)
+    # Define mapping of canonical targets to their dedicated extractor functions
+    TARGET_EXTRACTORS = {
+        "Board of Directors": _extract_board_of_directors,
+        "Key Management Personnel": _extract_kmp,
+        "Board Committees": _extract_committees,
+        "Corporate Governance": _extract_corporate_governance,
+        "Share Capital": _extract_share_capital,
+        "Shareholding Pattern": _extract_shareholding_pattern,
+        "Major Shareholders": _extract_shareholding_pattern,
+        "Dividend Information": _extract_dividend,
+        "Company Profile": _extract_company_profile,
+        "Business Overview": _extract_business_overview,
+        "Business Review": _extract_business_overview,
+        "Products & Services": _extract_products_services,
+        "Subsidiaries & Group Structure": _extract_subsidiaries,
+        "Industry Overview": _extract_mda,
+        "Opportunities & Challenges": _extract_mda,
+        "Future Outlook": _extract_mda,
+        "Investor Information": _extract_investor_information,
+        "Outlook & Guidance": _extract_outlook_guidance,
+        "Financial Analysis": _extract_financial_analysis,
+        "Business Performance": _extract_business_performance,
+        "Risk Management": _extract_risk_management,
+        "Legal & Compliance": _extract_legal_compliance,
+        "Strategic Initiatives": _extract_strategic_initiatives,
+        "ESG & Sustainability": _extract_esg_sustainability,
+        "CSR": _extract_csr,
+        "Human Resources": _extract_human_resources,
+        "Audit Information": _extract_auditor_report,
+    }
+
+    # 1. Try Strict Match
+    for target_key, extractor_fn in TARGET_EXTRACTORS.items():
+        if matches_target(target_key):
+            return extractor_fn(truncated_text, llm, source_page, source_section)
+    
+    # 2. Fallback to broad text heuristics if strict match fails
+    if (category == "Management & Governance" and "board" in sub_lower) or "board of directors" in text_head:
         return _extract_board_of_directors(truncated_text, llm, source_page, source_section)
-    elif matches_target("Key Management Personnel") or (category == "Management & Governance" and ("kmp" in sub_lower or "personnel" in sub_lower)) or "key management personnel" in text_head:
+    elif (category == "Management & Governance" and ("kmp" in sub_lower or "personnel" in sub_lower)) or "key management personnel" in text_head:
         return _extract_kmp(truncated_text, llm, source_page, source_section)
-    elif matches_target("Board Committees") or (category == "Management & Governance" and "committee" in sub_lower) or "audit committee" in text_head or "remuneration committee" in text_head:
+    elif (category == "Management & Governance" and "committee" in sub_lower) or "audit committee" in text_head or "remuneration committee" in text_head:
         return _extract_committees(truncated_text, llm, source_page, source_section)
-    elif matches_target("Corporate Governance") or category == "Management & Governance" or "corporate governance" in text_head:
+    elif category == "Management & Governance" or "corporate governance" in text_head:
         return _extract_corporate_governance(truncated_text, llm, source_page, source_section)
 
-    # --- Shareholding ---
-    elif matches_target("Share Capital") or (category == "Shareholding Information" and "capital" in sub_lower) or "share capital" in text_head:
+    elif (category == "Shareholding Information" and "capital" in sub_lower) or "share capital" in text_head:
         return _extract_share_capital(truncated_text, llm, source_page, source_section)
-    elif matches_target("Shareholding Pattern") or matches_target("Major Shareholders") or (category == "Shareholding Information" and "pattern" in sub_lower) or "shareholding pattern" in text_head:
+    elif (category == "Shareholding Information" and "pattern" in sub_lower) or "shareholding pattern" in text_head:
         return _extract_shareholding_pattern(truncated_text, llm, source_page, source_section)
-    elif matches_target("Dividend Information") or (category == "Shareholding Information" and "dividend" in sub_lower) or "dividend" in text_head:
+    elif (category == "Shareholding Information" and "dividend" in sub_lower) or "dividend" in text_head:
         return _extract_dividend(truncated_text, llm, source_page, source_section)
 
-    # --- Company Information ---
-    elif matches_target("Company Profile") or (category == "Company Information" and "profile" in sub_lower) or "company profile" in text_head or "about the company" in text_head:
+    elif (category == "Company Information" and "profile" in sub_lower) or "company profile" in text_head or "about the company" in text_head:
         return _extract_company_profile(truncated_text, llm, source_page, source_section)
-    elif matches_target("Business Overview") or matches_target("Business Review") or (category == "Company Information" and "overview" in sub_lower) or "business review" in text_head:
+    elif (category == "Company Information" and "overview" in sub_lower) or "business review" in text_head:
         return _extract_business_overview(truncated_text, llm, source_page, source_section)
-    elif matches_target("Products & Services") or (category == "Company Information" and ("product" in sub_lower or "service" in sub_lower)) or "product offering" in text_head:
+    elif (category == "Company Information" and ("product" in sub_lower or "service" in sub_lower)) or "product offering" in text_head:
         return _extract_products_services(truncated_text, llm, source_page, source_section)
-    elif matches_target("Subsidiaries & Group Structure") or (category == "Company Information" and "subsidiari" in sub_lower) or "subsidiaries" in text_head:
+    elif (category == "Company Information" and "subsidiari" in sub_lower) or "subsidiaries" in text_head:
         return _extract_subsidiaries(truncated_text, llm, source_page, source_section)
 
-    # --- MD&A ---
     elif ("management discussion" in sub_lower or "md&a" in sub_lower
-          or matches_target("Industry Overview") or matches_target("Opportunities & Challenges")
-          or matches_target("Future Outlook") or category == "Management Discussion & Analysis"
+          or category == "Management Discussion & Analysis"
           or "management discussion and analysis" in text_head or "md&a" in text_head):
         return _extract_mda(truncated_text, llm, source_page, source_section)
 
-    # --- Priorities 3-7: Advanced & Strategic Categories ---
-    # Priority 3
-    elif matches_target("Investor Information") or category == "Investor Information" or "investor" in sub_lower:
+    elif category == "Investor Information" or "investor" in sub_lower:
         return _extract_investor_information(truncated_text, llm, source_page, source_section)
-    elif matches_target("Outlook & Guidance") or category == "Outlook & Guidance" or "guidance" in sub_lower:
+    elif category == "Outlook & Guidance" or "guidance" in sub_lower:
         return _extract_outlook_guidance(truncated_text, llm, source_page, source_section)
-        
-    # Priority 4
-    elif matches_target("Financial Analysis") or category == "Financial Analysis" or "financial analysis" in sub_lower:
+    elif category == "Financial Analysis" or "financial analysis" in sub_lower:
         return _extract_financial_analysis(truncated_text, llm, source_page, source_section)
-    elif matches_target("Business Performance") or category == "Business Performance" or "performance" in sub_lower:
+    elif category == "Business Performance" or "performance" in sub_lower:
         return _extract_business_performance(truncated_text, llm, source_page, source_section)
-    elif matches_target("Risk Management") or category == "Risk Management" or "risk" in sub_lower:
+    elif category == "Risk Management" or "risk" in sub_lower:
         return _extract_risk_management(truncated_text, llm, source_page, source_section)
-
-    # Priority 5
-    elif matches_target("Legal & Compliance") or category == "Legal & Compliance" or "legal" in sub_lower or "compliance" in sub_lower:
+    elif category == "Legal & Compliance" or "legal" in sub_lower or "compliance" in sub_lower:
         return _extract_legal_compliance(truncated_text, llm, source_page, source_section)
-    elif matches_target("Strategic Initiatives") or category == "Strategic Initiatives" or "strategic" in sub_lower:
+    elif category == "Strategic Initiatives" or "strategic" in sub_lower:
         return _extract_strategic_initiatives(truncated_text, llm, source_page, source_section)
-
-    # Priority 6
-    elif matches_target("ESG & Sustainability") or category == "ESG & Sustainability" or "esg" in sub_lower or "sustainability" in sub_lower:
+    elif category == "ESG & Sustainability" or "esg" in sub_lower or "sustainability" in sub_lower:
         return _extract_esg_sustainability(truncated_text, llm, source_page, source_section)
-    elif matches_target("CSR") or category == "CSR" or "corporate social responsibility" in sub_lower or "csr" in sub_lower:
+    elif category == "CSR" or "corporate social responsibility" in sub_lower or "csr" in sub_lower:
         return _extract_csr(truncated_text, llm, source_page, source_section)
-
-    # Priority 7
-    elif matches_target("Human Resources") or category == "Human Resources" or "human resource" in sub_lower or "employee" in sub_lower:
+    elif category == "Human Resources" or "human resource" in sub_lower or "employee" in sub_lower:
         return _extract_human_resources(truncated_text, llm, source_page, source_section)
 
-    # --- Sprint 2: Audit / Financial Metadata ---
     elif "auditor" in sub_lower or "audit report" in sub_lower or "auditor's report" in text_head or category == "Audit Information":
         return _extract_auditor_report(truncated_text, llm, source_page, source_section)
     elif "segment" in sub_lower or "segment information" in text_head or "segment reporting" in text_head:

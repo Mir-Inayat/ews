@@ -29,14 +29,17 @@ The pipeline is designed to handle extremely long and noisy PDFs gracefully:
 
 ---
 
-## 🚀 Recent Enhancements (Phases 2, 3, & 4)
+## 🚀 Recent Enhancements (Phases 2-4 & Sprint 3)
 
-During our most recent pair-programming session, we fundamentally upgraded the extraction architecture to an enterprise-grade "Master Data" model:
+During our most recent pair-programming sessions, we fundamentally upgraded the extraction architecture to an enterprise-grade "Master Data" model, and hardened the extraction logic:
 
 - **Section Registry (Phase 2)**: Replaced raw taxonomy mappings with a `Master Sections` layer that dynamically aggregates contiguous pages of the same category into structural blocks.
 - **Table Inventory (Phase 3)**: Formalized table detection to log all potential tables (and whether they require VLM processing) into a centralized `table_inventory`.
 - **Generic VLM Router (Phase 4)**: The extraction pipeline now seamlessly routes all complex non-financial tables (e.g., Shareholding Pattern, Segment Info, SOCE) to a dynamic, generic VLM extraction engine, while preserving the highly-optimized legacy VLM engine exclusively for the core 3 financial statements.
 - **Universal Excel Generator**: Completely overhauled `excel_builder.py` to ensure the generated Excel workbook is an exact 1:1 reflection of the Master Data JSON. The exporter dynamically creates a dedicated Excel sheet for every Category, and prints out beautiful, cleanly wrapped text blocks and formatted table grids for every Subcategory.
+- **Schema Bleeding & Flattening Fixes (Sprint 3)**: Hardened extraction routing (`content_extractor.py`) to use strict explicit target mapping, completely solving the "Schema Bleeding" issue where overlapping text heuristics caused data extraction to overwrite adjacent targets. Additionally, overhauled `workbook_population.py` to index the hierarchical JSON using exact lookups, fixing the "Flattening Collisions".
+- **Pydantic Resilience (Sprint 3)**: Re-wrote canonical schemas to use `Optional` types, preventing catastrophic validation failures when the LLM returns `null` for missing parameters.
+- **RAG & Semantic Chunking (Sprint 3)**: Eliminated naive token truncation (which caused massive data loss in the MD&A section). We introduced `rag_chunker.py`, utilizing `sentence-transformers` and `LangChain` to dynamically chunk and query long sections, keeping the most semantically relevant text within the model's context window.
 
 ---
 

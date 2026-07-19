@@ -852,35 +852,40 @@ def populate_intelligence_report(
     if evidence_map is None:
         evidence_map = {}
 
-    # Flatten the hierarchical structured_intelligence for easier searching
-    flat_intel = {}
-    for cat, sub_dict in structured_intelligence.items():
-        if isinstance(sub_dict, dict):
-            for sub, val in sub_dict.items():
-                if isinstance(val, dict):
-                    for k, v in val.items():
-                        flat_intel[k.replace("_", " ").lower()] = v
-                flat_intel[sub.lower()] = val
-
+    # Avoid flattening the entire dict to prevent field collisions (Schema Bleeding / Flattening Collision)
     report_rows = []
     
     for cat, subcat in WORKBOOK_TARGETS:
         aliases = MAPPING_RULES.get(subcat, [subcat.lower()])
         
         extracted_value = ""
-        # 1. Exact match on alias
-        for alias in aliases:
-            if alias in flat_intel and flat_intel[alias]:
-                extracted_value = _format_value(flat_intel[alias])
-                break
+        cat_data = structured_intelligence.get(cat, {})
         
-        # 2. Try partial match if no exact match
+        # 1. Exact match on subcategory directly
+        if subcat in cat_data and cat_data[subcat]:
+            extracted_value = _format_value(cat_data[subcat])
+            
+        # 2. Try exact match on alias within category data
         if not extracted_value:
-            for k, v in flat_intel.items():
-                for alias in aliases:
-                    if (alias in k or k in alias) and v:
-                        extracted_value = _format_value(v)
+            for alias in aliases:
+                for real_subcat, val in cat_data.items():
+                    if alias.lower() == real_subcat.lower() and val:
+                        extracted_value = _format_value(val)
                         break
+                if extracted_value:
+                    break
+                    
+        # 3. Last resort, check globally across all categories
+        if not extracted_value:
+            for _, c_data in structured_intelligence.items():
+                if isinstance(c_data, dict):
+                    for alias in aliases:
+                        for real_subcat, val in c_data.items():
+                            if alias.lower() == real_subcat.lower() and val:
+                                extracted_value = _format_value(val)
+                                break
+                        if extracted_value:
+                            break
                 if extracted_value:
                     break
         
@@ -892,10 +897,20 @@ def populate_intelligence_report(
             if subcat == "Subsidiaries & Group Structure":
                 # Check for explicit "no subsidiaries" statement in extracted data
                 no_subsidiary_found = False
-                for k, v in flat_intel.items():
-                    if isinstance(v, dict) and v.get("no_subsidiaries_statement"):
-                        no_subsidiary_found = True
-                        break
+                
+                # Check direct subcategory first
+                if isinstance(cat_data.get(subcat), dict) and cat_data.get(subcat).get("no_subsidiaries_statement"):
+                    no_subsidiary_found = True
+                else:
+                    # Fallback to searching everywhere
+                    for _, c_data in structured_intelligence.items():
+                        if isinstance(c_data, dict):
+                            for _, val in c_data.items():
+                                if isinstance(val, dict) and val.get("no_subsidiaries_statement"):
+                                    no_subsidiary_found = True
+                                    break
+                        if no_subsidiary_found:
+                            break
                 if no_subsidiary_found:
                     status = "NOT APPLICABLE"
                     extracted_value = "Company has no subsidiaries as disclosed"
