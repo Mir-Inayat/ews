@@ -311,7 +311,7 @@ raw_board = [
 validated = validate_entity_list("board_members", raw_board)
 assert len(validated) == 2
 assert validated[0]["din"] == "00012345"
-assert validated[1]["type"] == ""  # default from schema
+assert validated[1]["type"] is None  # default from schema (Optional[str] = None)
 print(f'  validate_entity_list: {len(validated)} items validated')
 
 # Test ENTITY_REGISTRY
