@@ -177,7 +177,9 @@ def _find_in_structured_intelligence(
 def _find_section_id(sections: list[CanonicalSection], section_name: str, page_num: int) -> str | None:
     s_lower = section_name.lower()
     for sec in sections:
-        if sec.start_page <= page_num <= sec.end_page:
+        start_p = sec.start_page or 1
+        end_p = sec.end_page or start_p
+        if start_p <= page_num <= end_p:
             return sec.section_id
         if s_lower in sec.title_normalized or s_lower in sec.title_raw.lower():
             return sec.section_id
