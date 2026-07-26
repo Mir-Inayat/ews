@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # VLM client helpers
 # ===================================================================
 
-def _get_vlm_client(temperature: float = 0.0, max_tokens: int = 4096,
+def _get_vlm_client(temperature: float = 0.0, max_tokens: int = 8192,
                      request_timeout: int = 300):
     """Get a LangChain ChatOpenAI instance configured for the VLM.
 
@@ -66,7 +66,7 @@ def _call_vlm_with_images(
     images: list[bytes],
     system_prompt: str | None = None,
     json_schema: dict | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int = 8192,
     temperature: float = 0.0,
     request_timeout: int = 300,
 ) -> str | None:
@@ -185,6 +185,12 @@ def _extract_json_from_response(text: str) -> dict | list | None:
                     except json.JSONDecodeError:
                         pass
 
+    # Try repairing truncated JSON cut off at max_tokens limit
+    repaired_truncated = _repair_truncated_json(text)
+    if repaired_truncated is not None:
+        logger.info("Successfully recovered truncated VLM JSON response!")
+        return repaired_truncated
+
     logger.warning("Could not extract JSON from VLM response")
     return None
 
@@ -195,6 +201,48 @@ def _repair_trailing_commas(text: str) -> str | None:
         return re.sub(r",\s*([}\]])", r"\1", text)
     except Exception:
         return None
+
+
+def _repair_truncated_json(text: str) -> dict | list | None:
+    """Repair JSON strings truncated mid-stream by token limit cutoff."""
+    if not text:
+        return None
+
+    clean_text = text.strip()
+    if "```json" in clean_text:
+        clean_text = clean_text.split("```json")[-1]
+    if "```" in clean_text:
+        clean_text = clean_text.split("```")[0]
+
+    clean_text = clean_text.strip()
+    start_pos = clean_text.find("{")
+    if start_pos == -1:
+        start_pos = clean_text.find("[")
+    if start_pos == -1:
+        return None
+
+    clean_text = clean_text[start_pos:]
+
+    # Truncate at last complete closing brace '}'
+    last_brace = clean_text.rfind("}")
+    if last_brace != -1:
+        truncated_part = clean_text[:last_brace + 1]
+
+        open_braces = truncated_part.count("{") - truncated_part.count("}")
+        open_brackets = truncated_part.count("[") - truncated_part.count("]")
+
+        repaired = truncated_part + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            repaired_commas = _repair_trailing_commas(repaired)
+            if repaired_commas:
+                try:
+                    return json.loads(repaired_commas)
+                except json.JSONDecodeError:
+                    pass
+
+    return None
 
 
 # ===================================================================
