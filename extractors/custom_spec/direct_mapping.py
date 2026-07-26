@@ -423,16 +423,17 @@ def _find_in_structured_intelligence(
     return None, None
 
 
-def _find_section_id(sections: list[CanonicalSection], section_name: str, page_num: int) -> str | None:
-    s_lower = section_name.lower()
+def _find_section_id(sections: list[CanonicalSection], section_name: str | None, page_num: int | None) -> str | None:
+    s_lower = section_name.lower() if section_name else ""
     for sec in sections:
         start_p = sec.start_page or 1
         end_p = sec.end_page or start_p
-        if start_p <= page_num <= end_p:
+        if page_num is not None and start_p <= page_num <= end_p:
             return sec.section_id
-        if s_lower in sec.title_normalized or s_lower in sec.title_raw.lower():
+        if s_lower and (s_lower in sec.title_normalized or s_lower in sec.title_raw.lower()):
             return sec.section_id
     return sections[0].section_id if sections else None
+
 
 
 def _find_in_canonical_tables(
