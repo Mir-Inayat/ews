@@ -211,9 +211,16 @@ def _find_in_document_metadata(
     val = None
     exp = ""
 
-    if ("company" in e_name or "company_name" in f_id or "company legal name" in e_name) and meta.company_name:
-        val = meta.company_name
-        exp = "Extracted company legal name from document metadata."
+    if ("company" in e_name or "company_name" in f_id or "company legal name" in e_name):
+        if meta.company_name and meta.company_name != "Unknown Company":
+            val = meta.company_name
+            exp = "Extracted company legal name from document metadata."
+        else:
+            # Fallback to source PDF filename clean title
+            raw_fn = Path(canonical_doc.source_metadata.file_name).stem
+            clean_name = re.sub(r"[\-_]", " ", raw_fn).strip()
+            val = clean_name
+            exp = "Extracted company name from source PDF document title."
     elif ("auditor" in e_name or "auditor_report" in f_id) and (meta.auditor_name or meta.auditor_opinion):
         val = f"Auditor: {meta.auditor_name or 'N/A'} | Opinion: {meta.auditor_opinion or 'Clean/Unqualified'}"
         exp = "Extracted independent auditor report metadata."
@@ -359,11 +366,11 @@ def _find_by_regex_patterns(
     e_name = spec.entity_name.lower()
 
     regex_patterns = []
-    if "employee" in f_id or "employee" in e_name or "workforce" in f_id:
+    if "employee" in f_id or "employee" in e_name or "workforce" in f_id or "headcount" in f_id:
         regex_patterns = [
-            r"(?:number of|total|permanent)\s*(?:employees|workforce|people)\s*(?:count|strength|as at)?\s*[:\-=]?\s*([\d,]+)",
-            r"(?:employees|workforce)\s*[:\-=]?\s*([\d,]+)",
-            r"([\d,]+)\s*(?:permanent|total)?\s*employees",
+            r"(?:total|permanent|regular|active|number of)?\s*(?:employees|workforce|people|headcount|manpower|personnel|staff)\s*(?:count|strength|as on|as at|in employment)?\s*[:\-=]?\s*([\d,]{2,})",
+            r"([\d,]{2,})\s*(?:permanent|regular|active|full-time)?\s*(?:employees|workforce|people|personnel|staff)",
+            r"(?:employees|workforce|headcount)\s*[:\-=]?\s*([\d,]+)",
         ]
 
     if not regex_patterns:
