@@ -72,7 +72,7 @@ def resolve_direct_mapping(
 
     if match_val is not None:
         norm_val, unit, currency = normalize_field_value(match_val, spec.expected_value_type.value)
-        page_num = match_evidence.get("source_page", 1) if match_evidence else 1
+        page_num = (match_evidence.get("source_page") or 1) if match_evidence else 1
         section_name = match_evidence.get("source_section") if match_evidence else subcategory
         sec_id = _find_section_id(canonical_doc.sections, section_name, page_num)
 
