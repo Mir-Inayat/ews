@@ -419,6 +419,8 @@ async def web_ui():
                     <label style="font-size:12px; color:var(--text-muted);">Extraction Specification Spec</label>
                     <select id="specSelect" style="width:100%; padding:10px; border-radius:8px; background:rgba(255,255,255,0.05); color:white; border:1px solid var(--border-color); margin-top:4px;">
                         <option value="sample_custom_spec.json">Enterprise Demo Spec (10 Core Fields)</option>
+                        <option value="msme_financial_metrics_spec.json">Detailed Financial Metrics (27 Items)</option>
+                        <option value="comprehensive_sections_spec.json">Comprehensive Narrative Sections (13 Items)</option>
                     </select>
                 </div>
 
