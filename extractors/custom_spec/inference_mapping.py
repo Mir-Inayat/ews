@@ -54,25 +54,37 @@ def resolve_inference_mapping(
         s_lower = sec.subcategory.lower()
         t_lower = sec.title_normalized.lower()
 
+        match_found = False
         if (
             category.lower() in c_lower
             or subcategory.lower() in s_lower
             or any(exp.lower() in t_lower for exp in spec.expected_section_types)
             or any(syn.lower() in t_lower for syn in spec.synonyms)
         ):
+            match_found = True
+
+        # Pre-fetch text blocks for this section
+        sec_text_parts = []
+        for blk_id in sec.block_ids:
+            for blk in canonical_doc.blocks:
+                if blk.block_id == blk_id:
+                    block_tokens = [
+                        canonical_doc.token_registry[t].text
+                        for t in blk.token_ids
+                        if t in canonical_doc.token_registry
+                    ]
+                    if block_tokens:
+                        sec_text_parts.append(" ".join(block_tokens))
+
+        if not match_found and sec_text_parts:
+            # Fallback to checking if synonyms exist in the actual text
+            section_full_text = " ".join(sec_text_parts).lower()
+            # Require minimum length for synonyms to avoid spurious matches
+            if any(len(syn) > 3 and syn.lower() in section_full_text for syn in spec.synonyms):
+                match_found = True
+
+        if match_found:
             target_section = sec
-            # Gather text from block IDs
-            sec_text_parts = []
-            for blk_id in sec.block_ids:
-                for blk in canonical_doc.blocks:
-                    if blk.block_id == blk_id:
-                        block_tokens = [
-                            canonical_doc.token_registry[t].text
-                            for t in blk.token_ids
-                            if t in canonical_doc.token_registry
-                        ]
-                        if block_tokens:
-                            sec_text_parts.append(" ".join(block_tokens))
             if sec_text_parts:
                 snippets.append("\n".join(sec_text_parts[:10]))  # First 10 blocks
 

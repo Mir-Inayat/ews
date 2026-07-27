@@ -60,7 +60,31 @@ def resolve_direct_mapping(
             return table_res
 
     # -------------------------------------------------------------------------
-    # 3. Look for pre-extracted structured intelligence in processing_metadata
+    # 3. Check canonical table cell labels (Highest Priority for Financials)
+    # -------------------------------------------------------------------------
+    table_match, tbl_cell, tbl_prov = _find_in_canonical_tables(canonical_doc, entity_name, spec.synonyms)
+    if table_match:
+        norm_val, unit, currency = normalize_field_value(table_match.get("raw_text"), spec.expected_value_type.value)
+        return CustomExtractionResult(
+            field_id=field_id,
+            category=category,
+            subcategory=subcategory,
+            entity_name=entity_name,
+            entity_type=entity_type,
+            extraction_mode=spec.extraction_mode,
+            status=ExtractionStatus.FOUND,
+            value_raw=table_match.get("raw_text"),
+            value_normalized=norm_val,
+            unit=unit,
+            currency=currency,
+            confidence=0.88,
+            explanation=f"Matched canonical table row '{entity_name}' on page {tbl_prov.page_number}.",
+            provenance=[tbl_prov],
+            validation_status=ValidationStatus.VALIDATED,
+        )
+
+    # -------------------------------------------------------------------------
+    # 4. Look for pre-extracted structured intelligence in processing_metadata
     # -------------------------------------------------------------------------
     proc_meta = canonical_doc.processing_metadata or {}
     raw_intel = proc_meta.get("raw_extractions", {})
@@ -102,14 +126,14 @@ def resolve_direct_mapping(
         )
 
     # -------------------------------------------------------------------------
-    # 4. Check canonical section matching expected_section_types or synonyms
+    # 5. Check canonical section matching expected_section_types or synonyms
     # -------------------------------------------------------------------------
     sec_res = _find_section_by_type_or_synonym(canonical_doc, spec)
     if sec_res:
         return sec_res
 
     # -------------------------------------------------------------------------
-    # 5. Regex text pattern matching (Employee Count, Ratios, Numbers)
+    # 6. Regex text pattern matching (Employee Count, Ratios, Numbers)
     # -------------------------------------------------------------------------
     regex_match, reg_prov = _find_by_regex_patterns(canonical_doc, spec)
     if regex_match:
@@ -129,30 +153,6 @@ def resolve_direct_mapping(
             confidence=0.82,
             explanation=f"Matched pattern for '{entity_name}' in section '{reg_prov.section_id}' on page {reg_prov.page_number}.",
             provenance=[reg_prov],
-            validation_status=ValidationStatus.VALIDATED,
-        )
-
-    # -------------------------------------------------------------------------
-    # 6. Check canonical table cell labels
-    # -------------------------------------------------------------------------
-    table_match, tbl_cell, tbl_prov = _find_in_canonical_tables(canonical_doc, entity_name, spec.synonyms)
-    if table_match:
-        norm_val, unit, currency = normalize_field_value(table_match.get("raw_text"), spec.expected_value_type.value)
-        return CustomExtractionResult(
-            field_id=field_id,
-            category=category,
-            subcategory=subcategory,
-            entity_name=entity_name,
-            entity_type=entity_type,
-            extraction_mode=spec.extraction_mode,
-            status=ExtractionStatus.FOUND,
-            value_raw=table_match.get("raw_text"),
-            value_normalized=norm_val,
-            unit=unit or canonical_doc.document_metadata.unit_denomination,
-            currency=currency or canonical_doc.document_metadata.currency,
-            confidence=0.90,
-            explanation=f"Found structured tabular match for '{entity_name}' in table '{tbl_prov.table_id}'.",
-            provenance=[tbl_prov],
             validation_status=ValidationStatus.VALIDATED,
         )
 
