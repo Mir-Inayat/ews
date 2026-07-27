@@ -226,7 +226,7 @@ def _find_in_document_metadata(
         val = f"Auditor: {meta.auditor_name or 'N/A'} | Opinion: {meta.auditor_opinion or 'Clean/Unqualified'}"
         exp = "Extracted independent auditor report metadata."
     elif "fy_end" in f_id or "financial_year" in f_id:
-        val = meta.financial_year
+        val = meta.fy_end
         exp = "Extracted reporting financial year."
 
     if val:
