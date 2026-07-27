@@ -117,12 +117,21 @@ async def custom_extract(
         tmp_dir = Path(tmp_str)
         pdf_path = await _save_upload(tmp_dir, file)
 
-        # Product 1: Canonicalize PDF
-        canonical_doc = await asyncio.to_thread(
-            canonicalize_pdf,
-            pdf_path=pdf_path,
-            use_llm_taxonomy=False
-        )
+        # Product 1: Canonicalize PDF (or load from cache)
+        doc_id = pdf_path.stem
+        cached_canonical_path = Path("output") / doc_id / "canonical_document.v0.json"
+        
+        if cached_canonical_path.exists():
+            logger.info(f"Loading cached CanonicalDocument v0 for {doc_id}")
+            from canonicalizer import CanonicalDocument
+            with open(cached_canonical_path, "r", encoding="utf-8") as f:
+                canonical_doc = CanonicalDocument.model_validate_json(f.read())
+        else:
+            canonical_doc = await asyncio.to_thread(
+                canonicalize_pdf,
+                pdf_path=pdf_path,
+                use_llm_taxonomy=False
+            )
 
         # Product 2: Load spec & extract
         spec_file = Path(spec_id) if Path(spec_id).exists() else Path("sample_custom_spec.json")
@@ -490,11 +499,12 @@ async def web_ui():
                 runBtn.innerText = "Extracting...";
                 statusBox.style.display = "block";
 
+                const specVal = document.getElementById('specSelect').value;
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
 
                 try {
-                    const resp = await fetch('/api/v1/custom-extract', {
+                    const resp = await fetch('/api/v1/custom-extract?spec_id=' + encodeURIComponent(specVal), {
                         method: 'POST',
                         body: formData
                     });
