@@ -446,21 +446,23 @@ def _find_in_canonical_tables(
 
     for tbl in doc.tables:
         for cell in tbl.cells:
-            if cell.role == "data" and cell.raw_text:
+            if cell.raw_text:
                 c_text = cell.raw_text.lower()
                 for q in query_terms:
-                    if q in c_text:
+                    if len(q) > 2 and q in c_text:
                         for adj_cell in tbl.cells:
                             if adj_cell.row_index == cell.row_index and adj_cell.column_index > cell.column_index:
-                                prov = SourceReference(
-                                    document_id=doc.document_id,
-                                    page_number=tbl.page_numbers[0] if tbl.page_numbers else 1,
-                                    section_id=tbl.table_id,
-                                    table_id=tbl.table_id,
-                                    cell_id=adj_cell.cell_id,
-                                    raw_text=f"{cell.raw_text} -> {adj_cell.raw_text}",
-                                )
-                                return {"raw_text": adj_cell.raw_text}, adj_cell, prov
+                                if adj_cell.parsed_numeric is not None or any(char.isdigit() for char in adj_cell.raw_text):
+                                    prov = SourceReference(
+                                        document_id=doc.document_id,
+                                        page_number=tbl.page_numbers[0] if tbl.page_numbers else 1,
+                                        section_id=tbl.table_id,
+                                        table_id=tbl.table_id,
+                                        cell_id=adj_cell.cell_id,
+                                        raw_text=f"{cell.raw_text} -> {adj_cell.raw_text}",
+                                    )
+                                    val_to_use = str(adj_cell.parsed_numeric) if adj_cell.parsed_numeric is not None else adj_cell.raw_text
+                                    return {"raw_text": val_to_use}, adj_cell, prov
     return None, None, None
 
 
