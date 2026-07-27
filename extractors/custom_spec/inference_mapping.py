@@ -89,6 +89,45 @@ def resolve_inference_mapping(
                 snippets.append("\n".join(sec_text_parts[:10]))  # First 10 blocks
 
     if not snippets:
+        # UNIVERSAL BLOCK SEARCH FALLBACK
+        # If the canonicalizer failed to map blocks to sections, scan all raw blocks directly.
+        all_blocks = canonical_doc.blocks
+        matched_block_indices = set()
+        
+        for i, blk in enumerate(all_blocks):
+            if i in matched_block_indices:
+                continue
+                
+            block_tokens = [
+                canonical_doc.token_registry[t].text
+                for t in blk.token_ids
+                if t in canonical_doc.token_registry
+            ]
+            if not block_tokens:
+                continue
+                
+            block_text_lower = " ".join(block_tokens).lower()
+            if any(len(syn) > 3 and syn.lower() in block_text_lower for syn in spec.synonyms):
+                # We found a hit! Grab surrounding context (+/- 1 block)
+                context_parts = []
+                start_idx = max(0, i - 1)
+                end_idx = min(len(all_blocks), i + 2)
+                
+                for j in range(start_idx, end_idx):
+                    matched_block_indices.add(j)
+                    c_tokens = [
+                        canonical_doc.token_registry[t].text
+                        for t in all_blocks[j].token_ids
+                        if t in canonical_doc.token_registry
+                    ]
+                    if c_tokens:
+                        context_parts.append(" ".join(c_tokens))
+                        
+                snippets.append("\n".join(context_parts))
+                if len(snippets) >= 5:  # Cap at 5 contexts to avoid exceeding token limits
+                    break
+
+    if not snippets:
         # Fallback to general processing_metadata text extractions
         proc_meta = canonical_doc.processing_metadata or {}
         raw_text_exts = proc_meta.get("raw_text_extractions", [])
