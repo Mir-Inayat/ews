@@ -123,9 +123,8 @@ async def custom_extract(
         
         if cached_canonical_path.exists():
             logger.info(f"Loading cached CanonicalDocument v0 for {doc_id}")
-            from canonicalizer import CanonicalDocument
-            with open(cached_canonical_path, "r", encoding="utf-8") as f:
-                canonical_doc = CanonicalDocument.model_validate_json(f.read())
+            from canonicalizer import load_canonical_document
+            canonical_doc = load_canonical_document(cached_canonical_path)
         else:
             canonical_doc = await asyncio.to_thread(
                 canonicalize_pdf,
