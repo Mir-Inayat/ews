@@ -107,6 +107,22 @@ def _auto_save_to_db(result: dict[str, Any]) -> None:
 # Product 1 + Product 2 Custom Extraction Spec Endpoints
 # ===================================================================
 
+@app.get("/api/v1/spec/{spec_id}", summary="Get Custom Extraction Spec JSON")
+async def get_custom_spec(spec_id: str) -> JSONResponse:
+    """Return the JSON content of the requested extraction spec."""
+    # Only allow fetching json files from current directory
+    if not spec_id.endswith(".json") or "/" in spec_id or "\\" in spec_id:
+        return JSONResponse(content={"error": "Invalid spec ID"}, status_code=400)
+        
+    spec_path = Path(spec_id)
+    if not spec_path.exists():
+        return JSONResponse(content={"error": "Spec not found"}, status_code=404)
+        
+    with open(spec_path, "r", encoding="utf-8") as f:
+        spec_data = json.load(f)
+        
+    return JSONResponse(content=spec_data)
+
 @app.post("/api/v1/custom-extract", summary="Run Product 1 Canonicalizer + Product 2 Custom Spec Engine")
 async def custom_extract(
     file: UploadFile = File(...),
@@ -403,6 +419,43 @@ async def web_ui():
                 font-size: 13px;
             }
             .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+            
+            /* Modal Styles */
+            .modal-overlay {
+                display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px);
+                z-index: 1000; align-items: center; justify-content: center;
+            }
+            .modal-content {
+                background: rgba(30, 41, 59, 0.95);
+                border: 1px solid var(--border-color);
+                border-radius: 20px;
+                width: 90%; max-width: 800px; max-height: 85vh;
+                overflow-y: auto; padding: 32px;
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+                transform: translateY(20px); opacity: 0;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .modal-overlay.show { display: flex; }
+            .modal-overlay.show .modal-content { transform: translateY(0); opacity: 1; }
+            .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+            .modal-close { background: transparent; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; }
+            .modal-close:hover { color: white; }
+            .spec-field-card {
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.05);
+                border-radius: 12px; padding: 16px; margin-bottom: 12px;
+            }
+            .spec-field-card h4 { margin: 0 0 8px 0; color: #818CF8; }
+            .synonym-tag {
+                display: inline-block; padding: 2px 8px; border-radius: 4px;
+                background: rgba(16, 185, 129, 0.1); color: #34D399; font-size: 11px; margin: 2px 4px 2px 0;
+            }
+            pre.formatted-json {
+                background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;
+                font-family: monospace; font-size: 12px; overflow-x: auto;
+                border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap; margin: 0;
+            }
         </style>
     </head>
     <body>
@@ -430,6 +483,9 @@ async def web_ui():
                         <option value="msme_financial_metrics_spec.json">Detailed Financial Metrics (27 Items)</option>
                         <option value="comprehensive_sections_spec.json">Comprehensive Narrative Sections (13 Items)</option>
                     </select>
+                </div>
+                <div style="margin-bottom:24px; text-align: right;">
+                    <button type="button" class="btn-secondary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px;" onclick="viewSpecDetails()">👁️ View Spec Details</button>
                 </div>
 
                 <button class="btn" id="runBtn" onclick="runExtraction()">Execute Custom Spec Extraction</button>
@@ -482,7 +538,77 @@ async def web_ui():
             </div>
         </div>
 
+        <!-- Spec Viewer Modal -->
+        <div id="specModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <span class="badge" id="modalSpecId">spec_id</span>
+                        <h2 style="margin: 8px 0 4px 0;" id="modalSpecName">Spec Name</h2>
+                        <div style="color:var(--text-muted); font-size: 14px;" id="modalSpecDesc">Description</div>
+                    </div>
+                    <button class="modal-close" onclick="closeSpecModal()">&times;</button>
+                </div>
+                <div id="modalFieldsList"></div>
+            </div>
+        </div>
+
         <script>
+            function formatValueRaw(val) {
+                if (!val || val === '-') return '<b>-</b>';
+                try {
+                    let parsed = val;
+                    if (typeof val === 'string') {
+                        let fixedStr = val.replace(/'/g, '"').replace(/None/g, 'null');
+                        try { parsed = JSON.parse(fixedStr); } catch(e) { parsed = val; }
+                    }
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        return `<pre class="formatted-json">${JSON.stringify(parsed, null, 2)}</pre>`;
+                    }
+                } catch(e) {}
+                return `<b>${val}</b>`;
+            }
+
+            async function viewSpecDetails() {
+                const specVal = document.getElementById('specSelect').value;
+                try {
+                    const resp = await fetch('/api/v1/spec/' + encodeURIComponent(specVal));
+                    if (!resp.ok) throw new Error("Spec not found");
+                    const data = await resp.json();
+                    
+                    document.getElementById('modalSpecId').innerText = data.version ? `Version ${data.version}` : data.spec_id;
+                    document.getElementById('modalSpecName').innerText = data.spec_name || specVal;
+                    document.getElementById('modalSpecDesc').innerText = data.description || "Extraction Spec Configuration";
+                    
+                    const fieldsHtml = data.fields.map(f => `
+                        <div class="spec-field-card">
+                            <div style="display:flex; justify-content:space-between;">
+                                <h4>${f.entity_name}</h4>
+                                <span style="font-size:11px; color:var(--text-muted);">${f.extraction_mode}</span>
+                            </div>
+                            <div style="font-size:12px; margin-bottom:8px; color:var(--text-muted);">${f.description || ''}</div>
+                            <div>
+                                <span style="font-size:11px; color:#94A3B8; margin-right:4px;">Synonyms:</span>
+                                ${(f.synonyms || []).map(s => `<span class="synonym-tag">${s}</span>`).join('')}
+                            </div>
+                        </div>
+                    `).join('');
+                    document.getElementById('modalFieldsList').innerHTML = fieldsHtml;
+                    
+                    const modal = document.getElementById('specModal');
+                    modal.style.display = 'flex';
+                    setTimeout(() => modal.classList.add('show'), 10);
+                } catch (err) {
+                    alert("Could not load spec details: " + err.message);
+                }
+            }
+
+            function closeSpecModal() {
+                const modal = document.getElementById('specModal');
+                modal.classList.remove('show');
+                setTimeout(() => modal.style.display = 'none', 300);
+            }
+
             async function runExtraction() {
                 const fileInput = document.getElementById('pdfInput');
                 if (!fileInput.files.length) {
@@ -534,8 +660,10 @@ async def web_ui():
                             <td><span class="status-tag status-${res.status}">${res.status}</span></td>
                             <td>${confPct}%</td>
                             <td>
-                                <div><b>${res.value_raw || '-'}</b></div>
-                                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${res.explanation || ''}${provText}</div>
+                                <div>${formatValueRaw(res.value_raw)}</div>
+                                <div style="font-size:11px; color:var(--text-muted); margin-top:6px; border-top: 1px solid rgba(255,255,255,0.05); padding-top:6px;">
+                                    ${res.explanation || ''}${provText}
+                                </div>
                             </td>
                         `;
                         tbody.appendChild(tr);

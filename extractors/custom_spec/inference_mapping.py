@@ -58,6 +58,7 @@ def resolve_inference_mapping(
             category.lower() in c_lower
             or subcategory.lower() in s_lower
             or any(exp.lower() in t_lower for exp in spec.expected_section_types)
+            or any(syn.lower() in t_lower for syn in spec.synonyms)
         ):
             target_section = sec
             # Gather text from block IDs
