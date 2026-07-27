@@ -214,13 +214,7 @@ def resolve_inference_mapping(
     except Exception as exc:
         logger.warning(f"Inference mapping fallback for '{entity_name}': {exc}")
 
-    # Heuristic fallback if LLM is unavailable or offline
-    first_line = context_text.strip().splitlines()[0][:150] if context_text else "N/A"
-    page_no = target_section.start_page if target_section else 1
-    sec_id = target_section.section_id if target_section else None
-
-    norm_val, unit, currency = normalize_field_value(first_line, spec.expected_value_type.value)
-
+    # 3. Field not found or LLM returned null
     return CustomExtractionResult(
         field_id=field_id,
         category=category,
@@ -228,20 +222,13 @@ def resolve_inference_mapping(
         entity_name=entity_name,
         entity_type=entity_type,
         extraction_mode=spec.extraction_mode,
-        status=ExtractionStatus.FOUND,
-        value_raw=first_line,
-        value_normalized=norm_val,
-        unit=unit,
-        currency=currency,
-        confidence=0.75,
-        explanation=f"Inferred contextual summary from section '{target_section.title_raw if target_section else subcategory}'.",
-        provenance=[
-            SourceReference(
-                document_id=canonical_doc.document_id,
-                page_number=page_no,
-                section_id=sec_id,
-                raw_text=first_line,
-            )
-        ],
-        validation_status=ValidationStatus.VALIDATED,
+        status=ExtractionStatus.NOT_FOUND,
+        value_raw=None,
+        value_normalized=None,
+        unit=None,
+        currency=None,
+        confidence=0.0,
+        explanation=f"LLM could not confidently extract a value for '{entity_name}' from the provided context.",
+        provenance=[],
+        validation_status=ValidationStatus.NOT_RUN,
     )

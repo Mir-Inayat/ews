@@ -95,6 +95,13 @@ def resolve_direct_mapping(
     )
 
     if match_val is not None:
+        # Prevent severe VLM hallucinations (e.g., lists/dicts for numeric fields)
+        expected = spec.expected_value_type.value
+        if expected in ("currency_amount", "number", "count", "percentage"):
+            if isinstance(match_val, (list, dict)):
+                match_val = None
+                
+    if match_val is not None:
         norm_val, unit, currency = normalize_field_value(match_val, spec.expected_value_type.value)
         page_num = (match_evidence.get("source_page") or 1) if match_evidence else 1
         section_name = match_evidence.get("source_section") if match_evidence else subcategory
