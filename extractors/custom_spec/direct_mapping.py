@@ -374,36 +374,48 @@ def _find_by_regex_patterns(
     e_name = spec.entity_name.lower()
 
     regex_patterns = []
+    
+    # 1. Employee Count specific patterns
     if "employee" in f_id or "employee" in e_name or "workforce" in f_id or "headcount" in f_id:
-        regex_patterns = [
+        regex_patterns.extend([
             r"(?:total|permanent|regular|active|number of)?\s*(?:employees|workforce|people|headcount|manpower|personnel|staff)\s*(?:count|strength|as on|as at|in employment)?\s*[:\-=]?\s*([\d,]{2,})",
             r"([\d,]{2,})\s*(?:permanent|regular|active|full-time)?\s*(?:employees|workforce|people|personnel|staff)",
             r"(?:employees|workforce|headcount)\s*[:\-=]?\s*([\d,]+)",
-        ]
+        ])
+
+    # 2. Universal Numeric Fallback (Aggressive table scraping from raw text)
+    if spec.expected_value_type.value in ("currency_amount", "number"):
+        terms = [re.escape(t.strip()) for t in [spec.entity_name] + spec.synonyms if len(t.strip()) > 2]
+        if terms:
+            terms_joined = "|".join(terms)
+            # Matches: Label -> Optional Note Number/Letter -> Numeric Value
+            # e.g. "Profit for the period A 12,938.22" -> captures "12,938.22"
+            pattern = rf"(?i)(?:{terms_joined})\s*(?:[A-Za-z0-9\-\.]+\s*)?([\d\,\.\(\)]{{2,}})"
+            regex_patterns.append(pattern)
 
     if not regex_patterns:
         return None, None
 
-    for sec in canonical_doc.sections:
-        for blk_id in sec.block_ids:
-            blk = next((b for b in canonical_doc.blocks if b.block_id == blk_id), None)
-            if blk:
-                b_tokens = [canonical_doc.token_registry[t].text for t in blk.token_ids if t in canonical_doc.token_registry]
-                b_text = " ".join(b_tokens)
-
-                for pat in regex_patterns:
-                    match = re.search(pat, b_text, re.IGNORECASE)
-                    if match:
-                        matched_val = match.group(1) if match.groups() else match.group(0)
-                        prov = SourceReference(
-                            document_id=canonical_doc.document_id,
-                            page_number=blk.page_number,
-                            section_id=sec.section_id,
-                            block_id=blk.block_id,
-                            token_ids=blk.token_ids,
-                            raw_text=b_text[:200],
-                        )
-                        return matched_val, prov
+    # Search universally across all blocks to catch orphans missed by canonicalizer sections
+    for blk in canonical_doc.blocks:
+        b_tokens = [canonical_doc.token_registry[t].text for t in blk.token_ids if t in canonical_doc.token_registry]
+        if not b_tokens:
+            continue
+            
+        b_text = " ".join(b_tokens)
+        for pat in regex_patterns:
+            match = re.search(pat, b_text, re.IGNORECASE)
+            if match:
+                matched_val = match.group(1) if match.groups() else match.group(0)
+                prov = SourceReference(
+                    document_id=canonical_doc.document_id,
+                    page_number=blk.page_number,
+                    block_id=blk.block_id,
+                    token_ids=blk.token_ids,
+                    raw_text=b_text[:200],
+                )
+                return matched_val, prov
+                
     return None, None
 
 

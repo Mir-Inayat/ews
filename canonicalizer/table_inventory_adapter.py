@@ -75,22 +75,27 @@ def build_canonical_tables(
                     cells.append(c_label)
                     cell_ids_in_row.append(c_label_id)
 
-                    # Period values
-                    cur_val = str(r_item.get("current_period") or "")
-                    if cur_val:
-                        c_val_id = f"cell_r{r_idx}_c1"
-                        parsed = _parse_decimal(cur_val)
-                        c_val = CanonicalCell(
-                            cell_id=c_val_id,
-                            row_index=r_idx,
-                            column_index=1,
-                            bbox=BoundingBox(x0=260.0, y0=100.0 + (r_idx * 15), x1=400.0, y1=115.0 + (r_idx * 15)),
-                            raw_text=cur_val,
-                            parsed_numeric=parsed,
-                            role="data",
-                        )
-                        cells.append(c_val)
-                        cell_ids_in_row.append(c_val_id)
+                    # Period values dynamically extracted from any unknown keys
+                    ignore_keys = {"line_item", "particulars", "note_no", "note", "notes"}
+                    col_index = 1
+                    for k, v in r_item.items():
+                        if k.lower() not in ignore_keys:
+                            cur_val = str(v or "").strip()
+                            if cur_val:
+                                c_val_id = f"cell_r{r_idx}_c{col_index}"
+                                parsed = _parse_decimal(cur_val)
+                                c_val = CanonicalCell(
+                                    cell_id=c_val_id,
+                                    row_index=r_idx,
+                                    column_index=col_index,
+                                    bbox=BoundingBox(x0=250.0 + (col_index * 10), y0=100.0 + (r_idx * 15), x1=400.0 + (col_index * 10), y1=115.0 + (r_idx * 15)),
+                                    raw_text=cur_val,
+                                    parsed_numeric=parsed,
+                                    role="data",
+                                )
+                                cells.append(c_val)
+                                cell_ids_in_row.append(c_val_id)
+                                col_index += 1
 
                 rows.append(CanonicalRow(row_index=r_idx, row_id=r_id, cell_ids=cell_ids_in_row, is_header=False, role="data"))
 
