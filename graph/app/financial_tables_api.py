@@ -745,9 +745,19 @@ async def web_ui():
                         method: 'POST',
                         body: formData
                     });
-                    const data = await resp.json();
+                    const text = await resp.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch(e) {
+                        throw new Error(text || "Extraction failed");
+                    }
 
                     if (!resp.ok) throw new Error(data.error || "Extraction failed");
+
+                    currentDocumentId = data.document_id;
+                    const btn = document.getElementById("inspectBtn");
+                    if (btn) btn.disabled = false;
 
                     // Update Stats
                     document.getElementById('statFound').innerText = data.summary.fields_found + " / " + data.summary.total_fields_requested;

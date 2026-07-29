@@ -11,7 +11,7 @@
       "entity_name": "Company Profile",
       "entity_type": "Narrative",
       "description": "Extracts Company Profile",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "company profile",
@@ -26,7 +26,7 @@
       "entity_name": "Board Of Directors",
       "entity_type": "Narrative",
       "description": "Extracts Board Of Directors",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "board of directors",
@@ -41,7 +41,7 @@
       "entity_name": "Corporate Governance",
       "entity_type": "Narrative",
       "description": "Extracts Corporate Governance",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "corporate governance"
@@ -55,7 +55,7 @@
       "entity_name": "Shareholding Pattern",
       "entity_type": "Narrative",
       "description": "Extracts Shareholding Pattern",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "shareholding pattern"
@@ -69,7 +69,7 @@
       "entity_name": "Industry Overview",
       "entity_type": "Narrative",
       "description": "Extracts Industry Overview",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "industry overview"
@@ -83,7 +83,7 @@
       "entity_name": "Future Outlook",
       "entity_type": "Narrative",
       "description": "Extracts Future Outlook",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "future outlook",
@@ -98,7 +98,7 @@
       "entity_name": "Accounting Policies",
       "entity_type": "Narrative",
       "description": "Extracts Accounting Policies",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "accounting policies",
@@ -113,7 +113,7 @@
       "entity_name": "Related Party Transactions",
       "entity_type": "Narrative",
       "description": "Extracts Related Party Transactions",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "related party transactions"
@@ -127,7 +127,7 @@
       "entity_name": "Business Risks",
       "entity_type": "Narrative",
       "description": "Extracts Business Risks",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "business risks",
@@ -142,7 +142,7 @@
       "entity_name": "Esg",
       "entity_type": "Narrative",
       "description": "Extracts Esg",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "esg",
@@ -158,7 +158,7 @@
       "entity_name": "Csr",
       "entity_type": "Narrative",
       "description": "Extracts Csr",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "csr",
@@ -173,7 +173,7 @@
       "entity_name": "Litigations",
       "entity_type": "Narrative",
       "description": "Extracts Litigations",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "litigations",
@@ -189,7 +189,7 @@
       "entity_name": "Auditor'S Report",
       "entity_type": "Narrative",
       "description": "Extracts Auditor'S Report",
-      "extraction_mode": "INFERENCE_BASE",
+      "extraction_mode": "INFERENCE_BASED",
       "expected_value_type": "string",
       "synonyms": [
         "auditor's report",

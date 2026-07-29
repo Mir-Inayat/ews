@@ -10,7 +10,7 @@
       "entity_name": "Company Legal Name",
       "entity_type": "text_fact",
       "description": "Legal registered name of the corporate entity.",
-      "extraction_mode": "DIRECT_MAPPING",
+      "extraction_mode": "INFERENCE_BASED",
       "synonyms": [
         "company name",
         "name of the company",
@@ -31,7 +31,7 @@
       "entity_name": "Board of Directors",
       "entity_type": "list",
       "description": "Names, DIN numbers, and designations of board members and directors.",
-      "extraction_mode": "DIRECT_MAPPING",
+      "extraction_mode": "INFERENCE_BASED",
       "synonyms": [
         "directors",
         "board members",
@@ -180,7 +180,7 @@
       "entity_name": "Auditor Opinion",
       "entity_type": "text_fact",
       "description": "Independent auditor name and audit opinion (e.g. Unqualified / Clean).",
-      "extraction_mode": "DIRECT_MAPPING",
+      "extraction_mode": "INFERENCE_BASED",
       "synonyms": [
         "auditor opinion",
         "auditors report",
@@ -201,7 +201,7 @@
       "entity_name": "Business Outlook & Strategy",
       "entity_type": "text_fact",
       "description": "Summary of management's future business outlook, strategic targets, and growth guidance.",
-      "extraction_mode": "DIRECT_MAPPING",
+      "extraction_mode": "INFERENCE_BASED",
       "synonyms": [
         "future outlook",
         "strategy",
