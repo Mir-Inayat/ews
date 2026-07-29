@@ -75,6 +75,7 @@ class CustomExtractionResult(BaseModel):
     explanation: Optional[str] = None
     provenance: list[SourceReference] = Field(default_factory=list)
     validation_status: ValidationStatus = ValidationStatus.NOT_RUN
+    other_candidates: Optional[list[dict[str, Any]]] = Field(default_factory=list)
 
 
 class CustomExtractionResultDocument(BaseModel):

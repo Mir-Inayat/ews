@@ -244,6 +244,64 @@ export default function ExtractionResults({ results, onInspect }) {
                             </tbody>
                           </table>
                         </div>
+                        
+                        {/* Other Candidates Collapse */}
+                        {field.other_candidates && field.other_candidates.length > 0 && (
+                          <details style={{ marginTop: '16px', border: '1px solid #e2e8f0', borderRadius: '6px', backgroundColor: '#f8fafc' }}>
+                            <summary style={{ padding: '12px 16px', cursor: 'pointer', fontWeight: 600, color: '#334155', outline: 'none' }}>
+                              View Other Candidates ({field.other_candidates.length} alternatives)
+                            </summary>
+                            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                              {field.other_candidates.map((cand, idx) => {
+                                const candTableData = parseTableStructure(cand.grid);
+                                if (!candTableData) return null;
+                                return (
+                                  <div key={idx} style={{ border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '16px', backgroundColor: '#ffffff' }}>
+                                    <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                                        {cand.title || cand.table_id}
+                                      </span>
+                                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#e2e8f0', color: '#64748b' }}>
+                                        Page {cand.page_number}
+                                      </span>
+                                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#fef3c7', color: '#92400e' }}>
+                                        Score: {cand.score}
+                                      </span>
+                                      {cand.table_id && (
+                                        <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#94a3b8' }}>{cand.table_id}</span>
+                                      )}
+                                    </div>
+                                    {cand.sec_context && (
+                                      <div style={{ marginBottom: '8px', fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                                        Section context: {cand.sec_context}
+                                      </div>
+                                    )}
+                                    <div style={{ width: '100%', overflowX: 'auto', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                        <thead>
+                                          <tr style={{ backgroundColor: '#f1f5f9' }}>
+                                            {candTableData.headers.map((h, c) => (
+                                              <th key={c} style={{ padding: '8px', textAlign: c === 0 ? 'left' : 'right', borderBottom: '1px solid #e2e8f0' }}>{h || `Col ${c+1}`}</th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {candTableData.rows.map((r, ri) => (
+                                            <tr key={ri} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                              {r.map((cell, ci) => (
+                                                <td key={ci} style={{ padding: '6px 8px', textAlign: ci === 0 ? 'left' : 'right' }}>{cell}</td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
+                        )}
                       </div>
                     ) : (
                       <div style={{ backgroundColor: '#f8f9fa', padding: '16px 20px', borderRadius: '6px', border: '1px solid var(--cool-gray-2)', fontSize: '14px', lineHeight: 1.5, color: '#0f172a' }}>

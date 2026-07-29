@@ -268,140 +268,273 @@ def _find_table_entity(
     canonical_doc: CanonicalDocument,
     spec: CustomExtractionFieldSpec,
 ) -> CustomExtractionResult | None:
-    """Match table entities against canonical tables and sections using candidate scoring and LLM disambiguation."""
-    target_terms = [spec.field_id.lower(), spec.subcategory.lower(), spec.entity_name.lower()] + [s.lower() for s in spec.synonyms]
+    """Match table entities against canonical tables and sections using candidate scoring and LLM disambiguation.
+    
+    Handles:
+    - column_index = None on row-label cells (treated as col 0)
+    - raw_text stored as dict string {'current_period': X, 'previous_period': Y}
+    - section.table_ids not populated → page-range-based section title matching
+    - standalone vs consolidated disambiguation via section page ranges
+    """
+    import ast
+
     is_consolidated = "consolidated" in spec.entity_name.lower() or any("consolidated" in s for s in spec.synonyms)
     is_standalone = "standalone" in spec.entity_name.lower() or any("standalone" in s for s in spec.synonyms)
 
-    core_terms = []
+    # Core terms for matching table content
     if any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["balance sheet", "financial position"]):
-        core_terms = ["balance sheet", "financial position", "assets", "liabilities", "equity and liabilities", "non-current assets", "share capital", "total assets", "particulars"]
+        core_terms = ["balance sheet", "financial position", "assets", "liabilities", "equity and liabilities",
+                      "non-current assets", "share capital", "total assets", "particulars"]
     elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["profit", "loss", "income"]):
-        core_terms = ["profit and loss", "profit & loss", "income statement", "revenue", "total income", "expenses", "revenue from operations"]
+        core_terms = ["profit and loss", "profit & loss", "income statement", "revenue", "total income",
+                      "expenses", "revenue from operations"]
     elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["cash flow"]):
         core_terms = ["cash flow", "operating activities", "investing activities", "financing activities"]
     else:
         core_terms = ["balance sheet", "profit and loss", "cash flow", "statement"]
 
+    # Build page -> section title index (since table_ids are not populated in canonical doc)
+    page_to_section_titles: dict[int, list[str]] = {}
+    for sec in canonical_doc.sections:
+        start_p = sec.start_page or 1
+        end_p = sec.end_page or start_p
+        t = (sec.title_raw or sec.title_normalized or "").lower()
+        if not t:
+            continue
+        for p in range(start_p, min(end_p + 1, start_p + 10)):  # cap range to avoid huge loops
+            page_to_section_titles.setdefault(p, []).append(t)
+
+    def _cell_text(cell) -> str:
+        """Extract display text from a cell whose raw_text may be a dict-string or plain str."""
+        raw = cell.raw_text
+        if not raw:
+            return ""
+        raw_str = str(raw).strip()
+        # Check if it looks like a dict: {'current_period': X, 'previous_period': Y}
+        if raw_str.startswith("{") and "current_period" in raw_str:
+            try:
+                d = ast.literal_eval(raw_str)
+                if isinstance(d, dict):
+                    cp = d.get("current_period")
+                    pp = d.get("previous_period")
+                    parts = []
+                    if cp is not None:
+                        parts.append(str(cp))
+                    if pp is not None:
+                        parts.append(str(pp))
+                    return " | ".join(parts) if parts else ""
+            except Exception:
+                pass
+        return raw_str.replace("\n", " ").strip()
+
+    def _cell_col(cell) -> int:
+        """Return column_index, defaulting None → 0."""
+        col = cell.column_index
+        return int(col) if col is not None else 0
+
+    def _build_grid(tbl_obj) -> list[list[str]]:
+        """Build a 2D string grid from table cells."""
+        if not tbl_obj.cells:
+            return []
+        max_row = max(c.row_index for c in tbl_obj.cells) + 1
+        max_col = max(_cell_col(c) for c in tbl_obj.cells) + 1
+        grid = [["" for _ in range(max_col)] for _ in range(max_row)]
+        for cell in tbl_obj.cells:
+            r = cell.row_index
+            c = _cell_col(cell)
+            if 0 <= r < max_row and 0 <= c < max_col:
+                grid[r][c] = _cell_text(cell)
+        return grid
+
+    def _build_structured_grid(tbl_obj) -> list[list[str]]:
+        """Build a structured 3-column grid [Particulars, Current Year, Previous Year] from dict-valued cells."""
+        if not tbl_obj.cells:
+            return []
+        # Check if cells use dict-valued raw_text
+        sample_cells = [c for c in tbl_obj.cells if c.raw_text and "current_period" in str(c.raw_text)]
+        if not sample_cells:
+            return _build_grid(tbl_obj)
+
+        # Group by row — col0 = label, col2 = dict with current/previous
+        rows_data: dict[int, dict] = {}
+        for cell in tbl_obj.cells:
+            r = cell.row_index
+            col = _cell_col(cell)
+            if r not in rows_data:
+                rows_data[r] = {"label": "", "current": "", "previous": ""}
+            raw_str = str(cell.raw_text or "").strip()
+            if raw_str.startswith("{") and "current_period" in raw_str:
+                try:
+                    d = ast.literal_eval(raw_str)
+                    if isinstance(d, dict):
+                        cp = d.get("current_period")
+                        pp = d.get("previous_period")
+                        if cp is not None:
+                            rows_data[r]["current"] = str(cp)
+                        if pp is not None:
+                            rows_data[r]["previous"] = str(pp)
+                except Exception:
+                    pass
+            elif col == 0 and raw_str:
+                rows_data[r]["label"] = raw_str.replace("\n", " ").strip()
+
+        # Build clean 3-col grid
+        result = [["Particulars", "Current Period", "Previous Period"]]
+        for row_idx in sorted(rows_data.keys()):
+            rd = rows_data[row_idx]
+            if rd["label"] or rd["current"] or rd["previous"]:
+                result.append([rd["label"], rd["current"], rd["previous"]])
+        return result
+
     candidates = []
 
-    # 1. Search Canonical Tables directly
     for tbl in canonical_doc.tables:
         if not tbl.cells:
             continue
-            
-        # Get table text snippet (first 40 cells / first 8 rows)
-        first_cells = sorted(tbl.cells, key=lambda c: (c.row_index, c.column_index))[:40]
-        header_text = " ".join((c.raw_text or "") for c in first_cells).lower()
 
-        # Find linked section title if any
-        linked_sec = next((s for s in canonical_doc.sections if s.table_ids and tbl.table_id in s.table_ids), None)
-        sec_text = (linked_sec.title_raw or linked_sec.title_normalized or "").lower() if linked_sec else ""
-        
-        combined_text = (header_text + " " + sec_text).strip()
+        tbl_pages = tbl.page_numbers or []
+        tbl_page = tbl_pages[0] if tbl_pages else 0
+
+        # Collect section titles for pages this table is on
+        sec_titles_for_tbl = []
+        for p in tbl_pages[:3]:
+            sec_titles_for_tbl.extend(page_to_section_titles.get(p, []))
+        sec_combined = " ".join(sec_titles_for_tbl)
+
+        # Build header text from first 40 cells (label column only)
+        label_cells = sorted(
+            [c for c in tbl.cells if _cell_col(c) == 0],
+            key=lambda c: c.row_index
+        )[:20]
+        header_text = " ".join(_cell_text(c) for c in label_cells).lower()
+
+        combined_text = (header_text + " " + sec_combined).strip()
 
         score = 0
-        # Check core term presence
         if any(ct in combined_text for ct in core_terms):
             score += 10
-            
+
         if score > 0:
+            # Standalone / Consolidated disambiguation using section title context
+            has_consolidated_ctx = "consolidated" in sec_combined
+            has_standalone_ctx = "standalone" in sec_combined
+
             if is_consolidated:
-                if "consolidated" in combined_text:
-                    score += 15
-                elif "standalone" in combined_text:
-                    score -= 10
+                if has_consolidated_ctx:
+                    score += 20  # strong boost
+                elif has_standalone_ctx and not has_consolidated_ctx:
+                    score -= 15  # penalize standalone sections
+                # Also boost if table is on a later page (consolidated typically comes after standalone)
+                if tbl_page > 100:
+                    score += 5
             if is_standalone:
-                if "standalone" in combined_text or ("consolidated" not in combined_text and "standalone" in sec_text):
-                    score += 15
-                elif "consolidated" in combined_text and "standalone" not in combined_text:
-                    score -= 10
+                if has_standalone_ctx and not has_consolidated_ctx:
+                    score += 20  # strong boost
+                elif has_consolidated_ctx and not has_standalone_ctx:
+                    score -= 15
+                # Standalone typically on earlier pages
+                if tbl_page < 100:
+                    score += 5
+
+        if score > 0:
+            # Find best section (by page proximity)
+            best_sec = None
+            for sec in canonical_doc.sections:
+                sp = sec.start_page or 1
+                ep = sec.end_page or sp
+                if any(sp <= p <= ep for p in tbl_pages[:2]):
+                    best_sec = sec
+                    break
 
             candidates.append({
                 "table": tbl,
-                "section": linked_sec,
+                "section": best_sec,
                 "score": score,
-                "header_snippet": combined_text[:300]
+                "header_snippet": combined_text[:300],
+                "tbl_page": tbl_page,
+                "sec_titles": sec_combined[:200]
             })
-
-    # Also search Sections if table wasn't directly scored
-    for sec in canonical_doc.sections:
-        if not sec.table_ids:
-            continue
-        s_title = (sec.title_raw or sec.title_normalized or "").lower()
-        if any(ct in s_title for ct in core_terms):
-            tbl_obj = next((t for t in canonical_doc.tables if t.table_id in sec.table_ids and t.cells), None)
-            if tbl_obj and not any(c["table"].table_id == tbl_obj.table_id for c in candidates):
-                score = 10
-                if is_consolidated and "consolidated" in s_title:
-                    score += 15
-                elif is_standalone and "consolidated" not in s_title:
-                    score += 15
-                candidates.append({
-                    "table": tbl_obj,
-                    "section": sec,
-                    "score": score,
-                    "header_snippet": s_title[:300]
-                })
 
     if not candidates:
         return None
 
-    # Sort candidates by score
     candidates.sort(key=lambda x: x["score"], reverse=True)
     best = candidates[0]
 
-    # Disambiguate using On-Prem LLM if top 2 candidates are very close
-    if len(candidates) > 1 and candidates[1]["score"] > 5 and (best["score"] - candidates[1]["score"]) < 10:
+    # LLM disambiguation only when scores are too close
+    if len(candidates) > 1 and candidates[1]["score"] > 5 and (best["score"] - candidates[1]["score"]) < 8:
         try:
             from sources.annual_report.llm_config import get_llm
             from sources.annual_report.llm_utils import llm_call_with_retry, extract_json_from_response
-            
+
             llm = get_llm()
             cand_descriptions = []
             for i, c in enumerate(candidates[:3]):
-                cand_descriptions.append(f"Option {i}: Table ID '{c['table'].table_id}' (Page {c['table'].page_numbers[0] if c['table'].page_numbers else 1})\nSnippet: {c['header_snippet']}")
-                
+                pg = c["tbl_page"]
+                cand_descriptions.append(
+                    f"Option {i}: Table on Page {pg}, section context: '{c['sec_titles'][:150]}'"
+                )
             prompt = (
                 f"You are an expert financial audit assistant.\n"
-                f"We are looking for the exact table corresponding to: '{spec.entity_name}'.\n\n"
-                f"Here are the candidate tables:\n" + "\n\n".join(cand_descriptions) + "\n\n"
-                f"Return a JSON object with 'selected_option_index' (0, 1, or 2) representing the best match. Output JSON ONLY:"
+                f"We are looking for the table: '{spec.entity_name}'.\n\n"
+                f"Candidates:\n" + "\n\n".join(cand_descriptions) + "\n\n"
+                f"Return JSON with 'selected_option_index' (0, 1, or 2). Output JSON ONLY:"
             )
             llm_res = llm_call_with_retry(llm, prompt)
             parsed = extract_json_from_response(llm_res) if llm_res else None
             if parsed and isinstance(parsed, dict) and "selected_option_index" in parsed:
-                idx = parsed["selected_option_index"]
+                idx = int(parsed["selected_option_index"])
                 if 0 <= idx < len(candidates[:3]):
                     best = candidates[idx]
         except Exception as e:
-            logger.warning(f"LLM table selection failed, falling back to top scored candidate: {e}")
+            logger.warning(f"LLM table selection failed, using top scored candidate: {e}")
 
     if best["score"] <= 0:
         return None
 
     tbl_obj = best["table"]
     linked_sec = best["section"]
-    page_no = (tbl_obj.page_numbers[0] if tbl_obj.page_numbers else 1) if not linked_sec else (linked_sec.start_page or 1)
+    page_no = best["tbl_page"] or 1
 
-    # Reconstruct the 2D grid
-    max_row = max(c.row_index for c in tbl_obj.cells)
-    max_col = max(c.column_index for c in tbl_obj.cells)
-    grid = [["" for _ in range(max_col + 1)] for _ in range(max_row + 1)]
+    # Build structured grid
+    grid = _build_structured_grid(tbl_obj)
 
-    for cell in tbl_obj.cells:
-        text = (cell.raw_text or "").replace("\n", " ").strip()
-        grid[cell.row_index][cell.column_index] = text
+    title_parts = []
+    if linked_sec:
+        title_parts.append(linked_sec.title_raw or "")
+    title_parts.append(f"Table {tbl_obj.table_id} (Page {page_no})")
+    title = " | ".join(t for t in title_parts if t) or f"Table {tbl_obj.table_id}"
+    val_summary = f"Table '{tbl_obj.table_id}' [Page: {page_no}]"
 
-    title = linked_sec.title_raw if linked_sec else f"Table {tbl_obj.table_id}"
-    val_summary = f"Table '{title}' [Pages: {page_no}]"
     prov = SourceReference(
         document_id=canonical_doc.document_id,
         page_number=page_no,
-        section_id=linked_sec.section_id if linked_sec else tbl_obj.table_id,
+        section_id=linked_sec.section_id if linked_sec else None,
         table_id=tbl_obj.table_id,
-        raw_text=title,
+        raw_text=title[:200],
     )
+
+    logger.info(
+        f"[_find_table_entity] '{spec.field_id}' → Table {tbl_obj.table_id} "
+        f"(page={page_no}, score={best['score']}, sec='{best['sec_titles'][:80]}')"
+    )
+
+    # Build other_candidates
+    other_cands = []
+    for c in candidates[1:4]:
+        c_tbl = c["table"]
+        c_sec = c["section"]
+        c_page = c["tbl_page"] or 1
+        c_title = c_sec.title_raw if c_sec else f"Table {c_tbl.table_id}"
+        c_grid = _build_structured_grid(c_tbl)
+        other_cands.append({
+            "title": c_title or f"Table {c_tbl.table_id}",
+            "page_number": c_page,
+            "score": c["score"],
+            "sec_context": c["sec_titles"][:120],
+            "grid": c_grid,
+            "table_id": c_tbl.table_id
+        })
 
     return CustomExtractionResult(
         field_id=spec.field_id,
@@ -415,10 +548,11 @@ def _find_table_entity(
         value_normalized=grid,
         unit=canonical_doc.document_metadata.unit_denomination,
         currency=canonical_doc.document_metadata.currency,
-        confidence=0.95 if best["score"] >= 20 else 0.85,
-        explanation=f"Extracted statement table '{title}' (Page {page_no}).",
+        confidence=0.95 if best["score"] >= 25 else 0.85,
+        explanation=f"Extracted '{spec.entity_name}' from table {tbl_obj.table_id} (Page {page_no}). Section context: {best['sec_titles'][:120]}",
         provenance=[prov],
         validation_status=ValidationStatus.VALIDATED,
+        other_candidates=other_cands,
     )
 
 
