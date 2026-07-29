@@ -195,6 +195,55 @@ async def download_custom_excel(document_id: str):
     )
 
 
+
+@app.get("/api/v1/canonical-summary/{document_id}", summary="Get Canonical Document Summary")
+async def get_canonical_summary(document_id: str):
+    import json
+    from pathlib import Path
+    
+    file_path = Path("output") / document_id / "canonical_document.v0.json"
+    if not file_path.exists():
+        file_path = Path("canonical_document.v0.json")
+        if not file_path.exists():
+            return JSONResponse(status_code=404, content={"error": "Canonical Document not found"})
+    
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        
+        summary = {
+            "document_id": d.get("document_id"),
+            "metadata": d.get("document_metadata", {}),
+            "sections": [
+                {
+                    "section_id": sec.get("section_id"),
+                    "title_raw": sec.get("title_raw"),
+                    "section_type": sec.get("section_type"),
+                    "start_page": sec.get("start_page")
+                }
+                for sec in d.get("sections", [])
+            ],
+            "tables": [
+                {
+                    "table_id": tbl.get("table_id"),
+                    "page_numbers": tbl.get("page_numbers", []),
+                    "rows": [
+                        {
+                            "row_index": cell.get("row_index"),
+                            "column_index": cell.get("column_index"),
+                            "raw_text": cell.get("raw_text")
+                        }
+                        for cell in tbl.get("cells", [])
+                    ]
+                }
+                for tbl in d.get("tables", [])
+            ]
+        }
+        return JSONResponse(content=summary)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/v1/download/json/{document_id}", summary="Download Custom Spec JSON Result")
 async def download_custom_json(document_id: str):
     file_path = Path("output") / document_id / "custom_extraction_result.json"
@@ -480,6 +529,7 @@ async def web_ui():
                     <label style="font-size:12px; color:var(--text-muted);">Extraction Specification Spec</label>
                     <select id="specSelect" style="width:100%; padding:10px; border-radius:8px; background:rgba(255,255,255,0.05); color:white; border:1px solid var(--border-color); margin-top:4px;">
                         <option value="sample_custom_spec.json">Enterprise Demo Spec (10 Core Fields)</option>
+                        <option value="financial_statements_spec.json">Financial Statements Only (BS, P&L, CF)</option>
                         <option value="msme_financial_metrics_spec.json">Detailed Financial Metrics (27 Items)</option>
                         <option value="comprehensive_sections_spec.json">Comprehensive Narrative Sections (13 Items)</option>
                     </select>
@@ -489,6 +539,7 @@ async def web_ui():
                 </div>
 
                 <button class="btn" id="runBtn" onclick="runExtraction()">Execute Custom Spec Extraction</button>
+                <button type="button" class="btn-secondary" style="width:100%; margin-top:12px;" onclick="inspectCanonical()" id="inspectBtn" disabled>👁️ Inspect Canonical Document</button>
 
                 <div id="statusBox" style="margin-top:16px; font-size:13px; color:var(--text-muted); display:none;">
                     Processing PDF through Product 1 & Product 2...
@@ -609,7 +660,68 @@ async def web_ui():
                 setTimeout(() => modal.style.display = 'none', 300);
             }
 
-            async function runExtraction() {
+            
+        let currentDocumentId = null;
+        
+        async function inspectCanonical() {
+            if (!currentDocumentId) return;
+            const modal = document.getElementById('canonicalModal');
+            modal.classList.add('show');
+            const content = document.getElementById('canonicalContent');
+            content.innerHTML = "<p>Fetching canonical structure (ignoring 30MB token registry)...</p>";
+            
+            try {
+                const response = await fetch(`/api/v1/canonical-summary/${currentDocumentId}`);
+                if (!response.ok) throw new Error("Canonical document not found on server");
+                const data = await response.json();
+                
+                let html = "<div style='display:flex; gap:20px;'>";
+                
+                // Sections Column
+                html += "<div style='flex:1; max-height:60vh; overflow-y:auto; border:1px solid #334155; padding:16px; border-radius:12px;'>";
+                html += "<h3 style='margin-top:0; color:#38bdf8;'>Canonical Sections</h3>";
+                data.sections.forEach(sec => {
+                    html += `<div style='margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #1e293b;'>
+                        <div style='font-weight:bold; font-size:13px;'>${sec.title_raw || 'Untitled'}</div>
+                        <div style='font-size:11px; color:#94a3b8;'>Type: ${sec.section_type || 'Unknown'} | Page: ${sec.start_page}</div>
+                    </div>`;
+                });
+                html += "</div>";
+                
+                // Tables Column
+                html += "<div style='flex:1; max-height:60vh; overflow-y:auto; border:1px solid #334155; padding:16px; border-radius:12px;'>";
+                html += "<h3 style='margin-top:0; color:#a78bfa;'>Structured Tables</h3>";
+                data.tables.forEach(tbl => {
+                    html += `<div style='margin-bottom:16px; padding:12px; background:rgba(255,255,255,0.02); border:1px solid #1e293b; border-radius:8px;'>
+                        <div style='font-weight:bold; font-size:12px; margin-bottom:8px; color:#e2e8f0;'>Table ID: ${tbl.table_id} (Page: ${tbl.page_numbers.join(', ')})</div>`;
+                    
+                    const rows = {};
+                    tbl.rows.forEach(cell => {
+                        if (!rows[cell.row_index]) rows[cell.row_index] = [];
+                        rows[cell.row_index].push(cell);
+                    });
+                    
+                    Object.keys(rows).sort((a,b) => parseInt(a) - parseInt(b)).forEach(rIdx => {
+                        const rowCells = rows[rIdx].sort((a,b) => a.column_index - b.column_index);
+                        html += `<div style='display:flex; border-bottom:1px solid #1e293b; font-size:11px;'>`;
+                        rowCells.forEach(c => {
+                            html += `<div style='flex:1; padding:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='${c.raw_text}'>${c.raw_text || ''}</div>`;
+                        });
+                        html += `</div>`;
+                    });
+                    html += "</div>";
+                });
+                html += "</div>";
+                
+                html += "</div>";
+                content.innerHTML = html;
+            } catch (err) {
+                content.innerHTML = `<p style="color:#ef4444;">Error: ${err.message}</p>`;
+            }
+        }
+    
+
+        async function runExtraction() {
                 const fileInput = document.getElementById('pdfInput');
                 if (!fileInput.files.length) {
                     alert("Please select a PDF file first.");
@@ -684,6 +796,17 @@ async def web_ui():
                 }
             }
         </script>
+    
+    <div id="canonicalModal" class="modal-overlay">
+        <div class="modal-content" style="max-width:900px;">
+            <div class="modal-header">
+                <h2 style="margin:0;">Canonical Document Inspector</h2>
+                <button class="modal-close" onclick="document.getElementById('canonicalModal').classList.remove('show')">&times;</button>
+            </div>
+            <div id="canonicalContent">Loading canonical document structure...</div>
+        </div>
+    </div>
+    
     </body>
     </html>
     """

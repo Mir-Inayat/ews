@@ -468,8 +468,10 @@ def _find_in_canonical_tables(
             if cell.raw_text:
                 c_text = cell.raw_text.lower()
                 for q in query_terms:
-                    if len(q) > 2 and q in c_text:
-                        for adj_cell in tbl.cells:
+                    if len(q) > 2:
+                        import re
+                        if re.search(rf'\b{re.escape(q)}\b', c_text):
+                            for adj_cell in tbl.cells:
                             if adj_cell.row_index == cell.row_index and adj_cell.column_index > cell.column_index:
                                 if adj_cell.parsed_numeric is not None or any(char.isdigit() for char in adj_cell.raw_text):
                                     prov = SourceReference(
