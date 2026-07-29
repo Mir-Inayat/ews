@@ -275,13 +275,13 @@ def _find_table_entity(
 
     core_terms = []
     if any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["balance sheet", "financial position"]):
-        core_terms = ["balance sheet", "financial position"]
+        core_terms = ["balance sheet", "financial position", "assets", "liabilities", "equity and liabilities", "non-current assets", "share capital", "total assets", "particulars"]
     elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["profit", "loss", "income"]):
-        core_terms = ["profit and loss", "profit & loss", "income statement", "revenue"]
+        core_terms = ["profit and loss", "profit & loss", "income statement", "revenue", "total income", "expenses", "revenue from operations"]
     elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["cash flow"]):
-        core_terms = ["cash flow"]
+        core_terms = ["cash flow", "operating activities", "investing activities", "financing activities"]
     else:
-        core_terms = ["balance sheet", "profit and loss", "cash flow"]
+        core_terms = ["balance sheet", "profit and loss", "cash flow", "statement"]
 
     candidates = []
 
@@ -290,8 +290,8 @@ def _find_table_entity(
         if not tbl.cells:
             continue
             
-        # Get table text snippet (first 10 cells / first 3 rows)
-        first_cells = sorted(tbl.cells, key=lambda c: (c.row_index, c.column_index))[:15]
+        # Get table text snippet (first 40 cells / first 8 rows)
+        first_cells = sorted(tbl.cells, key=lambda c: (c.row_index, c.column_index))[:40]
         header_text = " ".join((c.raw_text or "") for c in first_cells).lower()
 
         # Find linked section title if any
@@ -309,10 +309,10 @@ def _find_table_entity(
             if is_consolidated:
                 if "consolidated" in combined_text:
                     score += 15
-                else:
+                elif "standalone" in combined_text:
                     score -= 10
             if is_standalone:
-                if "standalone" in combined_text or "standalone" in sec_text:
+                if "standalone" in combined_text or ("consolidated" not in combined_text and "standalone" in sec_text):
                     score += 15
                 elif "consolidated" in combined_text and "standalone" not in combined_text:
                     score -= 10

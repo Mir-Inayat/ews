@@ -11,10 +11,51 @@ export default function ExtractionResults({ results, onInspect }) {
   // Extract unique categories
   const categories = ['ALL', ...new Set(allFields.map(f => f.category))];
 
-  // Filter fields based on selected category
-  const filteredFields = activeCategory === 'ALL' 
-    ? allFields 
-    : allFields.filter(f => f.category === activeCategory);
+  // Helper to convert 2D array, List of Objects, or JSON strings into standard { headers, rows }
+  const parseTableStructure = (val) => {
+    if (!val) return null;
+    let data = val;
+    if (typeof val === 'string') {
+      try {
+        data = JSON.parse(val);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    if (!Array.isArray(data) || data.length === 0) return null;
+
+    // Case 1: 2D Grid Array [['Col1', 'Col2'], ['Val1', 'Val2']]
+    if (Array.isArray(data[0])) {
+      return {
+        headers: data[0].map(h => String(h || '')),
+        rows: data.slice(1).map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : [])
+      };
+    }
+
+    // Case 2: Array of Objects [{ line_item: '...', current_period: 100 }, ...]
+    if (typeof data[0] === 'object' && data[0] !== null) {
+      const keys = Array.from(new Set(data.flatMap(item => Object.keys(item || {}))));
+      const formatHeader = (k) => {
+        if (k === 'line_item' || k === 'particulars') return 'Particulars / Line Item';
+        if (k === 'current_period' || k === 'current_year') return 'Current Period (2024-2025)';
+        if (k === 'previous_period' || k === 'previous_year') return 'Previous Period (2023-2024)';
+        return k.replace(/_/g, ' ').toUpperCase();
+      };
+      
+      return {
+        headers: keys.map(formatHeader),
+        rows: data.map(item => keys.map(k => {
+          const v = item[k];
+          if (v === null || v === undefined) return '-';
+          if (typeof v === 'number') return v.toLocaleString('en-IN');
+          return String(v);
+        }))
+      };
+    }
+
+    return null;
+  };
 
   return (
     <div className="dds-flex dds-flex_column" style={{ gap: '24px' }}>
@@ -86,7 +127,7 @@ export default function ExtractionResults({ results, onInspect }) {
       {/* Main Spacious Results List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         {filteredFields.map((field, fIdx) => {
-          const isTableGrid = Array.isArray(field.value_normalized) && field.value_normalized.length > 0 && Array.isArray(field.value_normalized[0]);
+          const tableData = parseTableStructure(field.value_normalized) || parseTableStructure(field.value_raw);
 
           return (
             <div 
@@ -103,7 +144,7 @@ export default function ExtractionResults({ results, onInspect }) {
               <div 
                 className="dds-flex" 
                 style={{ 
-                  justify: 'space-between', 
+                  justifyContent: 'space-between', 
                   alignItems: 'center', 
                   padding: '16px 24px', 
                   backgroundColor: '#f8f9fa', 
@@ -111,8 +152,8 @@ export default function ExtractionResults({ results, onInspect }) {
                 }}
               >
                 <div className="dds-flex" style={{ alignItems: 'center', gap: '12px' }}>
-                  <div style={{ padding: '8px', borderRadius: '4px', backgroundColor: isTableGrid ? '#e8f4f8' : '#f0f7ea', color: isTableGrid ? 'var(--accessible-blue)' : 'var(--accessible-green)' }}>
-                    {isTableGrid ? <TableIcon size={20} /> : <FileText size={20} />}
+                  <div style={{ padding: '8px', borderRadius: '4px', backgroundColor: tableData ? '#e8f4f8' : '#f0f7ea', color: tableData ? 'var(--accessible-blue)' : 'var(--accessible-green)' }}>
+                    {tableData ? <TableIcon size={20} /> : <FileText size={20} />}
                   </div>
                   <div>
                     <div className="dds-flex" style={{ alignItems: 'center', gap: '8px' }}>
@@ -140,11 +181,11 @@ export default function ExtractionResults({ results, onInspect }) {
               <div style={{ padding: '24px' }}>
                 {field.status === 'FOUND' && (field.value_raw || field.value_normalized) ? (
                   <div>
-                    {isTableGrid ? (
+                    {tableData ? (
                       <div>
                         <div className="dds-flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                           <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--cool-gray-9)', textTransform: 'uppercase' }}>
-                            Reconstructed Financial Grid ({field.value_normalized.length} Rows x {field.value_normalized[0].length} Columns)
+                            Reconstructed Financial Grid ({tableData.rows.length} Rows x {tableData.headers.length} Columns)
                           </span>
                         </div>
 
@@ -153,7 +194,7 @@ export default function ExtractionResults({ results, onInspect }) {
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', backgroundColor: '#ffffff' }}>
                             <thead>
                               <tr style={{ backgroundColor: '#1e293b', color: '#ffffff' }}>
-                                {field.value_normalized[0].map((headerCell, cIdx) => (
+                                {tableData.headers.map((headerCell, cIdx) => (
                                   <th 
                                     key={cIdx} 
                                     style={{ 
@@ -170,7 +211,7 @@ export default function ExtractionResults({ results, onInspect }) {
                               </tr>
                             </thead>
                             <tbody>
-                              {field.value_normalized.slice(1).map((row, rIdx) => (
+                              {tableData.rows.map((row, rIdx) => (
                                 <tr 
                                   key={rIdx} 
                                   style={{ 
