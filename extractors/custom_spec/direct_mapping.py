@@ -271,44 +271,81 @@ def _find_table_entity(
     """Match table entities (Balance Sheet, P&L, Cash Flow) against canonical sections and tables."""
     target_terms = [spec.field_id.lower(), spec.subcategory.lower(), spec.entity_name.lower()] + [s.lower() for s in spec.synonyms]
 
+    is_consolidated = "consolidated" in spec.entity_name.lower() or any("consolidated" in s for s in spec.synonyms)
+    is_standalone = "standalone" in spec.entity_name.lower() or any("standalone" in s for s in spec.synonyms)
+
     # Search canonical sections for matching table statement
     for sec in canonical_doc.sections:
         s_type = (sec.section_type or "").lower()
         sub_cat = (sec.subcategory or "").lower()
         t_title = (sec.title_normalized or sec.title_raw or "").lower()
 
-        if any(term in s_type or term in sub_cat or term in t_title for term in target_terms):
-            # Check if section has linked table IDs
-            linked_tbl_id = sec.table_ids[0] if sec.table_ids else None
-            tbl_obj = next((t for t in canonical_doc.tables if t.table_id == linked_tbl_id), None) if linked_tbl_id else None
-            page_no = sec.start_page or (tbl_obj.page_numbers[0] if tbl_obj and tbl_obj.page_numbers else 1)
+        text_to_search = s_type + " " + sub_cat + " " + t_title
 
-            val_summary = f"Table '{sec.title_raw}' [Section: {sec.section_id}, Pages: {sec.start_page}-{sec.end_page}]"
-            prov = SourceReference(
-                document_id=canonical_doc.document_id,
-                page_number=page_no,
-                section_id=sec.section_id,
-                table_id=linked_tbl_id,
-                raw_text=sec.title_raw,
-            )
+        # 1. Broad match for entity type
+        has_match = False
+        core_terms = ["balance sheet", "profit and loss", "cash flow", "financial position", "income statement"]
+        for term in target_terms:
+            for ct in core_terms:
+                if ct in term and ct in text_to_search:
+                    has_match = True
+                    break
+            if has_match:
+                break
+                
+        if not has_match:
+            continue
+            
+        # 2. Strict check for Standalone vs Consolidated to prevent mis-attribution
+        if is_consolidated and "consolidated" not in text_to_search:
+            continue
+        if is_standalone and "consolidated" in text_to_search and "standalone" not in text_to_search:
+            continue
 
-            return CustomExtractionResult(
-                field_id=spec.field_id,
-                category=spec.category,
-                subcategory=spec.subcategory,
-                entity_name=spec.entity_name,
-                entity_type=spec.entity_type,
-                extraction_mode=spec.extraction_mode,
-                status=ExtractionStatus.FOUND,
-                value_raw=val_summary,
-                value_normalized={"section_id": sec.section_id, "table_id": linked_tbl_id, "pages": [sec.start_page, sec.end_page]},
-                unit=canonical_doc.document_metadata.unit_denomination,
-                currency=canonical_doc.document_metadata.currency,
-                confidence=0.92,
-                explanation=f"Found primary financial statement table '{sec.title_raw}' spanning pages {sec.start_page}-{sec.end_page}.",
-                provenance=[prov],
-                validation_status=ValidationStatus.VALIDATED,
-            )
+        # Check if section has linked table IDs
+        linked_tbl_id = sec.table_ids[0] if sec.table_ids else None
+        tbl_obj = next((t for t in canonical_doc.tables if t.table_id == linked_tbl_id), None) if linked_tbl_id else None
+        
+        if not tbl_obj or not tbl_obj.cells:
+            continue
+            
+        page_no = sec.start_page or (tbl_obj.page_numbers[0] if tbl_obj and tbl_obj.page_numbers else 1)
+        
+        # Reconstruct the 2D grid
+        max_row = max(c.row_index for c in tbl_obj.cells)
+        max_col = max(c.column_index for c in tbl_obj.cells)
+        grid = [["" for _ in range(max_col + 1)] for _ in range(max_row + 1)]
+        
+        for cell in tbl_obj.cells:
+            text = (cell.raw_text or "").replace("\n", " ").strip()
+            grid[cell.row_index][cell.column_index] = text
+
+        val_summary = f"Table '{sec.title_raw}' [Pages: {sec.start_page}-{sec.end_page}]"
+        prov = SourceReference(
+            document_id=canonical_doc.document_id,
+            page_number=page_no,
+            section_id=sec.section_id,
+            table_id=linked_tbl_id,
+            raw_text=sec.title_raw,
+        )
+
+        return CustomExtractionResult(
+            field_id=spec.field_id,
+            category=spec.category,
+            subcategory=spec.subcategory,
+            entity_name=spec.entity_name,
+            entity_type=spec.entity_type,
+            extraction_mode=spec.extraction_mode,
+            status=ExtractionStatus.FOUND,
+            value_raw=val_summary,
+            value_normalized=grid,
+            unit=canonical_doc.document_metadata.unit_denomination,
+            currency=canonical_doc.document_metadata.currency,
+            confidence=0.92,
+            explanation=f"Found primary financial statement table '{sec.title_raw}' spanning pages {sec.start_page}-{sec.end_page}.",
+            provenance=[prov],
+            validation_status=ValidationStatus.VALIDATED,
+        )
     return None
 
 
@@ -472,18 +509,18 @@ def _find_in_canonical_tables(
                         import re
                         if re.search(rf'\b{re.escape(q)}\b', c_text):
                             for adj_cell in tbl.cells:
-                            if adj_cell.row_index == cell.row_index and adj_cell.column_index > cell.column_index:
-                                if adj_cell.parsed_numeric is not None or any(char.isdigit() for char in adj_cell.raw_text):
-                                    prov = SourceReference(
-                                        document_id=doc.document_id,
-                                        page_number=tbl.page_numbers[0] if tbl.page_numbers else 1,
-                                        section_id=tbl.table_id,
-                                        table_id=tbl.table_id,
-                                        cell_id=adj_cell.cell_id,
-                                        raw_text=f"{cell.raw_text} -> {adj_cell.raw_text}",
-                                    )
-                                    val_to_use = str(adj_cell.parsed_numeric) if adj_cell.parsed_numeric is not None else adj_cell.raw_text
-                                    return {"raw_text": val_to_use}, adj_cell, prov
+                                if adj_cell.row_index == cell.row_index and adj_cell.column_index > cell.column_index:
+                                    if adj_cell.parsed_numeric is not None or any(char.isdigit() for char in adj_cell.raw_text):
+                                        prov = SourceReference(
+                                            document_id=doc.document_id,
+                                            page_number=tbl.page_numbers[0] if tbl.page_numbers else 1,
+                                            section_id=tbl.table_id,
+                                            table_id=tbl.table_id,
+                                            table_index=tbl.table_id,
+                                            raw_text=f"{cell.raw_text} -> {adj_cell.raw_text}",
+                                        )
+                                        val_to_use = str(adj_cell.parsed_numeric) if adj_cell.parsed_numeric is not None else adj_cell.raw_text
+                                        return {"raw_text": val_to_use}, adj_cell, prov
     return None, None, None
 
 
