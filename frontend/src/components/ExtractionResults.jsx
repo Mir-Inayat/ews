@@ -11,6 +11,11 @@ export default function ExtractionResults({ results, onInspect }) {
   // Extract unique categories
   const categories = ['ALL', ...new Set(allFields.map(f => f.category))];
 
+  // Filter fields based on selected category
+  const filteredFields = activeCategory === 'ALL' 
+    ? allFields 
+    : allFields.filter(f => f.category === activeCategory);
+
   // Helper to convert 2D array, List of Objects, or JSON strings into standard { headers, rows }
   const parseTableStructure = (val) => {
     if (!val) return null;
