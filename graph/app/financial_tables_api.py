@@ -234,48 +234,63 @@ async def get_canonical_document(document_id: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@app.get("/api/v1/canonical-summary/{document_id}", summary="Get Canonical Document Summary")
+@app.get("/api/v1/canonical-summary/{document_id}", summary="Get Lightweight Business-Friendly Canonical Summary")
 async def get_canonical_summary(document_id: str):
     import json
     from pathlib import Path
+    import urllib.parse
     
-    file_path = Path("output") / document_id / "canonical_document.v0.json"
+    doc_id_decoded = urllib.parse.unquote(document_id)
+    
+    file_path = Path("output") / doc_id_decoded / "canonical_document.v0.json"
     if not file_path.exists():
-        file_path = Path("canonical_document.v0.json")
+        file_path = Path("output") / document_id / "canonical_document.v0.json"
         if not file_path.exists():
-            return JSONResponse(status_code=404, content={"error": "Canonical Document not found"})
+            file_path = Path("canonical_document.v0.json")
+            if not file_path.exists():
+                return JSONResponse(status_code=404, content={"error": f"Canonical Document for '{document_id}' not found"})
     
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             d = json.load(f)
         
+        # Build clean 2D grids for tables without coordinates
+        clean_tables = []
+        for tbl in d.get("tables", []):
+            cells = tbl.get("cells", [])
+            if not cells:
+                continue
+            max_row = max(c.get("row_index", 0) for c in cells)
+            max_col = max(c.get("column_index", 0) for c in cells)
+            grid = [["" for _ in range(max_col + 1)] for _ in range(max_row + 1)]
+            for cell in cells:
+                grid[cell.get("row_index", 0)][cell.get("column_index", 0)] = (cell.get("raw_text") or "").replace("\n", " ").strip()
+                
+            clean_tables.append({
+                "table_id": tbl.get("table_id"),
+                "pages": tbl.get("page_numbers", []),
+                "dimensions": f"{max_row + 1} x {max_col + 1}",
+                "grid_sample": grid[:10]  # First 10 rows for clean display
+            })
+
         summary = {
             "document_id": d.get("document_id"),
             "metadata": d.get("document_metadata", {}),
+            "summary_stats": {
+                "total_pages": len(d.get("pages", [])),
+                "total_sections": len(d.get("sections", [])),
+                "total_tables": len(d.get("tables", []))
+            },
             "sections": [
                 {
                     "section_id": sec.get("section_id"),
-                    "title_raw": sec.get("title_raw"),
-                    "section_type": sec.get("section_type"),
-                    "start_page": sec.get("start_page")
+                    "title": sec.get("title_raw") or sec.get("title_normalized"),
+                    "category": sec.get("section_type"),
+                    "pages": f"Page {sec.get('start_page', 1)} - {sec.get('end_page', 1)}"
                 }
                 for sec in d.get("sections", [])
             ],
-            "tables": [
-                {
-                    "table_id": tbl.get("table_id"),
-                    "page_numbers": tbl.get("page_numbers", []),
-                    "rows": [
-                        {
-                            "row_index": cell.get("row_index"),
-                            "column_index": cell.get("column_index"),
-                            "raw_text": cell.get("raw_text")
-                        }
-                        for cell in tbl.get("cells", [])
-                    ]
-                }
-                for tbl in d.get("tables", [])
-            ]
+            "tables": clean_tables
         }
         return JSONResponse(content=summary)
     except Exception as e:
