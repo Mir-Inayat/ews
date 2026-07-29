@@ -1,15 +1,4 @@
 import React, { useState } from 'react';
-import { FileJson } from 'lucide-react';
-
-const PRESETS = [
-  { id: 'sample_custom_spec.json', label: 'Enterprise Demo Spec (10 Core Fields)' },
-  { id: 'financial_statements_spec.json', label: 'Financial Statements Only (BS, P&L, CF)' },
-  { id: 'msme_financial_metrics_spec.json', label: 'Detailed Financial Metrics (27 Items)' },
-  { id: 'comprehensive_sections_spec.json', label: 'Comprehensive Narrative Sections (13 Items)' },
-  { id: 'custom', label: 'Upload / Custom JSON Spec' }
-];
-
-import React, { useState } from 'react';
 import { FileJson, ListChecks, SlidersHorizontal } from 'lucide-react';
 import InteractiveFieldSelector from './InteractiveFieldSelector';
 
