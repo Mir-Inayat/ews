@@ -3,6 +3,7 @@ import DocumentUpload from './components/DocumentUpload';
 import SpecConfiguration from './components/SpecConfiguration';
 import ExtractionResults from './components/ExtractionResults';
 import CanonicalInspector from './components/CanonicalInspector';
+import ExtractionProgress from './components/ExtractionProgress';
 import { PlayCircle } from 'lucide-react';
 
 function App() {
@@ -62,60 +63,56 @@ function App() {
   return (
     <div className="digital">
       <header className="dds-header dds-header_inverse">
-        <div className="dds-header__container" style={{ display: 'flex', width: '100%', maxWidth: '1400px', margin: '0 auto', alignItems: 'center' }}>
+        <div className="dds-header__container" style={{ display: 'flex', width: '100%', maxWidth: '1440px', margin: '0 auto', alignItems: 'center' }}>
           <div className="dds-header__main" style={{ display: 'flex', alignItems: 'center' }}>
-            <span className="dds-header__project-name" style={{ color: 'var(--accessible-green)' }}>Enterprise Document Understanding</span>
+            <span className="dds-header__project-name" style={{ color: 'var(--accessible-green)', fontWeight: 700 }}>Deloitte Enterprise Document Understanding</span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ fontSize: '14px', color: 'var(--cool-gray-6)' }}>Product 1 (Canonicalizer) + Product 2 (Custom Spec Engine)</span>
-            <div className="dds-user-pic dds-user-pic_sm" style={{ background: 'var(--accessible-green)', color: 'white', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 'bold' }}>JD</div>
+            <span style={{ fontSize: '13px', color: 'var(--cool-gray-6)' }}>Canonicalizer + Spec Extraction Engine v2</span>
           </div>
         </div>
       </header>
 
-      <main className="dds-container">
-        <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '24px' }}>
+      <main className="dds-container" style={{ maxWidth: '1440px', margin: '24px auto', padding: '0 24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', gap: '24px', alignItems: 'start' }}>
           
-          {/* Left Column: Configuration */}
-          <div>
+          {/* Left Column: Configuration & Setup */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <DocumentUpload onFileSelect={setFile} />
             <SpecConfiguration onSpecChange={setSpec} />
             
             <button 
               className={`dds-btn dds-btn_primary dds-btn_green ${loading ? 'dds-btn_disabled' : ''}`}
-              style={{ width: '100%', marginTop: '16px', padding: '16px', fontSize: '16px' }}
+              style={{ width: '100%', padding: '16px', fontSize: '15px', fontWeight: 600, boxShadow: '0 4px 12px rgba(38,137,13,0.2)' }}
               onClick={handleExtract}
               disabled={loading}
             >
               <PlayCircle style={{ marginRight: '8px' }} />
-              {loading ? 'Extracting...' : 'Execute Custom Spec Extraction'}
+              {loading ? 'Processing Document...' : 'Execute Custom Spec Extraction'}
             </button>
 
             {error && (
-              <div className="dds-mt-4" style={{ padding: '16px', backgroundColor: '#FCE8E6', color: 'var(--red)', borderLeft: '4px solid var(--red)', borderRadius: '4px' }}>
+              <div style={{ padding: '16px', backgroundColor: '#FCE8E6', color: 'var(--red)', borderLeft: '4px solid var(--red)', borderRadius: '4px' }}>
                 <strong style={{ display: 'block', marginBottom: '4px' }}>Extraction Error:</strong>
                 <span style={{ fontSize: '13px', wordBreak: 'break-word' }}>{error}</span>
               </div>
             )}
           </div>
 
-          {/* Right Column: Results */}
+          {/* Right Column: Results & Interactive Workspace */}
           <div>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px', flexDirection: 'column', color: 'var(--cool-gray-9)' }}>
-                <div style={{ width: '48px', height: '48px', border: '4px solid var(--cool-gray-2)', borderTopColor: 'var(--accessible-green)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                <div style={{ fontSize: '18px', fontWeight: 600 }}>Analyzing Document...</div>
-                <div style={{ fontSize: '14px', marginTop: '8px' }}>This may take a few minutes for large reports.</div>
-              </div>
+              <ExtractionProgress fileName={file?.name} />
             ) : results ? (
               <ExtractionResults results={results} onInspect={setInspectDocId} />
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px', backgroundColor: 'var(--white)', border: '1px dashed var(--cool-gray-4)', borderRadius: '8px', color: 'var(--cool-gray-9)' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📄</div>
-                  <div style={{ fontSize: '16px', fontWeight: 600 }}>Ready to Extract</div>
-                  <div style={{ fontSize: '14px', marginTop: '4px' }}>Upload a report and select a spec to begin.</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '500px', backgroundColor: 'var(--white)', border: '2px dashed var(--cool-gray-4)', borderRadius: '8px', color: 'var(--cool-gray-9)' }}>
+                <div style={{ textAlign: 'center', maxWidth: '400px', padding: '24px' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--black)', margin: '0 0 8px 0' }}>Ready for Spec Extraction</h3>
+                  <p style={{ fontSize: '13px', color: 'var(--cool-gray-9)', margin: 0 }}>
+                    Upload an annual report PDF on the left, choose your target fields using the Interactive Taxonomy Builder, and click Execute!
+                  </p>
                 </div>
               </div>
             )}
@@ -127,7 +124,7 @@ function App() {
         <CanonicalInspector documentId={inspectDocId} onClose={() => setInspectDocId(null)} />
       )}
     </div>
-  );
+}
 }
 
 export default App;
