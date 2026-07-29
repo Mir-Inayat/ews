@@ -210,6 +210,30 @@ async def download_custom_excel(document_id: str):
 
 
 
+@app.get("/api/v1/canonical-document/{document_id}", summary="Get Full Canonical Document JSON")
+@app.get("/output/{document_id}/canonical_document.v0.json", summary="Get Full Canonical Document JSON Static Endpoint")
+async def get_canonical_document(document_id: str):
+    import json
+    from pathlib import Path
+    
+    # URL decode document_id if needed
+    import urllib.parse
+    doc_id_decoded = urllib.parse.unquote(document_id)
+    
+    file_path = Path("output") / doc_id_decoded / "canonical_document.v0.json"
+    if not file_path.exists():
+        file_path = Path("output") / document_id / "canonical_document.v0.json"
+        if not file_path.exists():
+            file_path = Path("canonical_document.v0.json")
+            if not file_path.exists():
+                return JSONResponse(status_code=404, content={"error": f"Canonical Document for {document_id} not found"})
+    
+    try:
+        return FileResponse(path=file_path, media_type="application/json", filename=f"{doc_id_decoded}_canonical.json")
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/v1/canonical-summary/{document_id}", summary="Get Canonical Document Summary")
 async def get_canonical_summary(document_id: str):
     import json

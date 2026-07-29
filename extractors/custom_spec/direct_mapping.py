@@ -268,85 +268,158 @@ def _find_table_entity(
     canonical_doc: CanonicalDocument,
     spec: CustomExtractionFieldSpec,
 ) -> CustomExtractionResult | None:
-    """Match table entities (Balance Sheet, P&L, Cash Flow) against canonical sections and tables."""
+    """Match table entities against canonical tables and sections using candidate scoring and LLM disambiguation."""
     target_terms = [spec.field_id.lower(), spec.subcategory.lower(), spec.entity_name.lower()] + [s.lower() for s in spec.synonyms]
-
     is_consolidated = "consolidated" in spec.entity_name.lower() or any("consolidated" in s for s in spec.synonyms)
     is_standalone = "standalone" in spec.entity_name.lower() or any("standalone" in s for s in spec.synonyms)
 
-    # Search canonical sections for matching table statement
+    core_terms = []
+    if any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["balance sheet", "financial position"]):
+        core_terms = ["balance sheet", "financial position"]
+    elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["profit", "loss", "income"]):
+        core_terms = ["profit and loss", "profit & loss", "income statement", "revenue"]
+    elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["cash flow"]):
+        core_terms = ["cash flow"]
+    else:
+        core_terms = ["balance sheet", "profit and loss", "cash flow"]
+
+    candidates = []
+
+    # 1. Search Canonical Tables directly
+    for tbl in canonical_doc.tables:
+        if not tbl.cells:
+            continue
+            
+        # Get table text snippet (first 10 cells / first 3 rows)
+        first_cells = sorted(tbl.cells, key=lambda c: (c.row_index, c.column_index))[:15]
+        header_text = " ".join((c.raw_text or "") for c in first_cells).lower()
+
+        # Find linked section title if any
+        linked_sec = next((s for s in canonical_doc.sections if s.table_ids and tbl.table_id in s.table_ids), None)
+        sec_text = (linked_sec.title_raw or linked_sec.title_normalized or "").lower() if linked_sec else ""
+        
+        combined_text = (header_text + " " + sec_text).strip()
+
+        score = 0
+        # Check core term presence
+        if any(ct in combined_text for ct in core_terms):
+            score += 10
+            
+        if score > 0:
+            if is_consolidated:
+                if "consolidated" in combined_text:
+                    score += 15
+                else:
+                    score -= 10
+            if is_standalone:
+                if "standalone" in combined_text or "standalone" in sec_text:
+                    score += 15
+                elif "consolidated" in combined_text and "standalone" not in combined_text:
+                    score -= 10
+
+            candidates.append({
+                "table": tbl,
+                "section": linked_sec,
+                "score": score,
+                "header_snippet": combined_text[:300]
+            })
+
+    # Also search Sections if table wasn't directly scored
     for sec in canonical_doc.sections:
-        s_type = (sec.section_type or "").lower()
-        sub_cat = (sec.subcategory or "").lower()
-        t_title = (sec.title_normalized or sec.title_raw or "").lower()
+        if not sec.table_ids:
+            continue
+        s_title = (sec.title_raw or sec.title_normalized or "").lower()
+        if any(ct in s_title for ct in core_terms):
+            tbl_obj = next((t for t in canonical_doc.tables if t.table_id in sec.table_ids and t.cells), None)
+            if tbl_obj and not any(c["table"].table_id == tbl_obj.table_id for c in candidates):
+                score = 10
+                if is_consolidated and "consolidated" in s_title:
+                    score += 15
+                elif is_standalone and "consolidated" not in s_title:
+                    score += 15
+                candidates.append({
+                    "table": tbl_obj,
+                    "section": sec,
+                    "score": score,
+                    "header_snippet": s_title[:300]
+                })
 
-        text_to_search = s_type + " " + sub_cat + " " + t_title
+    if not candidates:
+        return None
 
-        # 1. Broad match for entity type
-        has_match = False
-        core_terms = ["balance sheet", "profit and loss", "cash flow", "financial position", "income statement"]
-        for term in target_terms:
-            for ct in core_terms:
-                if ct in term and ct in text_to_search:
-                    has_match = True
-                    break
-            if has_match:
-                break
+    # Sort candidates by score
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    best = candidates[0]
+
+    # Disambiguate using On-Prem LLM if top 2 candidates are very close
+    if len(candidates) > 1 and candidates[1]["score"] > 5 and (best["score"] - candidates[1]["score"]) < 10:
+        try:
+            from sources.annual_report.llm_config import get_llm
+            from sources.annual_report.llm_utils import llm_call_with_retry, extract_json_from_response
+            
+            llm = get_llm()
+            cand_descriptions = []
+            for i, c in enumerate(candidates[:3]):
+                cand_descriptions.append(f"Option {i}: Table ID '{c['table'].table_id}' (Page {c['table'].page_numbers[0] if c['table'].page_numbers else 1})\nSnippet: {c['header_snippet']}")
                 
-        if not has_match:
-            continue
-            
-        # 2. Strict check for Standalone vs Consolidated to prevent mis-attribution
-        if is_consolidated and "consolidated" not in text_to_search:
-            continue
-        if is_standalone and "consolidated" in text_to_search and "standalone" not in text_to_search:
-            continue
+            prompt = (
+                f"You are an expert financial audit assistant.\n"
+                f"We are looking for the exact table corresponding to: '{spec.entity_name}'.\n\n"
+                f"Here are the candidate tables:\n" + "\n\n".join(cand_descriptions) + "\n\n"
+                f"Return a JSON object with 'selected_option_index' (0, 1, or 2) representing the best match. Output JSON ONLY:"
+            )
+            llm_res = llm_call_with_retry(llm, prompt)
+            parsed = extract_json_from_response(llm_res) if llm_res else None
+            if parsed and isinstance(parsed, dict) and "selected_option_index" in parsed:
+                idx = parsed["selected_option_index"]
+                if 0 <= idx < len(candidates[:3]):
+                    best = candidates[idx]
+        except Exception as e:
+            logger.warning(f"LLM table selection failed, falling back to top scored candidate: {e}")
 
-        # Check if section has linked table IDs
-        linked_tbl_id = sec.table_ids[0] if sec.table_ids else None
-        tbl_obj = next((t for t in canonical_doc.tables if t.table_id == linked_tbl_id), None) if linked_tbl_id else None
-        
-        if not tbl_obj or not tbl_obj.cells:
-            continue
-            
-        page_no = sec.start_page or (tbl_obj.page_numbers[0] if tbl_obj and tbl_obj.page_numbers else 1)
-        
-        # Reconstruct the 2D grid
-        max_row = max(c.row_index for c in tbl_obj.cells)
-        max_col = max(c.column_index for c in tbl_obj.cells)
-        grid = [["" for _ in range(max_col + 1)] for _ in range(max_row + 1)]
-        
-        for cell in tbl_obj.cells:
-            text = (cell.raw_text or "").replace("\n", " ").strip()
-            grid[cell.row_index][cell.column_index] = text
+    if best["score"] <= 0:
+        return None
 
-        val_summary = f"Table '{sec.title_raw}' [Pages: {sec.start_page}-{sec.end_page}]"
-        prov = SourceReference(
-            document_id=canonical_doc.document_id,
-            page_number=page_no,
-            section_id=sec.section_id,
-            table_id=linked_tbl_id,
-            raw_text=sec.title_raw,
-        )
+    tbl_obj = best["table"]
+    linked_sec = best["section"]
+    page_no = (tbl_obj.page_numbers[0] if tbl_obj.page_numbers else 1) if not linked_sec else (linked_sec.start_page or 1)
 
-        return CustomExtractionResult(
-            field_id=spec.field_id,
-            category=spec.category,
-            subcategory=spec.subcategory,
-            entity_name=spec.entity_name,
-            entity_type=spec.entity_type,
-            extraction_mode=spec.extraction_mode,
-            status=ExtractionStatus.FOUND,
-            value_raw=val_summary,
-            value_normalized=grid,
-            unit=canonical_doc.document_metadata.unit_denomination,
-            currency=canonical_doc.document_metadata.currency,
-            confidence=0.92,
-            explanation=f"Found primary financial statement table '{sec.title_raw}' spanning pages {sec.start_page}-{sec.end_page}.",
-            provenance=[prov],
-            validation_status=ValidationStatus.VALIDATED,
-        )
-    return None
+    # Reconstruct the 2D grid
+    max_row = max(c.row_index for c in tbl_obj.cells)
+    max_col = max(c.column_index for c in tbl_obj.cells)
+    grid = [["" for _ in range(max_col + 1)] for _ in range(max_row + 1)]
+
+    for cell in tbl_obj.cells:
+        text = (cell.raw_text or "").replace("\n", " ").strip()
+        grid[cell.row_index][cell.column_index] = text
+
+    title = linked_sec.title_raw if linked_sec else f"Table {tbl_obj.table_id}"
+    val_summary = f"Table '{title}' [Pages: {page_no}]"
+    prov = SourceReference(
+        document_id=canonical_doc.document_id,
+        page_number=page_no,
+        section_id=linked_sec.section_id if linked_sec else tbl_obj.table_id,
+        table_id=tbl_obj.table_id,
+        raw_text=title,
+    )
+
+    return CustomExtractionResult(
+        field_id=spec.field_id,
+        category=spec.category,
+        subcategory=spec.subcategory,
+        entity_name=spec.entity_name,
+        entity_type=spec.entity_type,
+        extraction_mode=spec.extraction_mode,
+        status=ExtractionStatus.FOUND,
+        value_raw=val_summary,
+        value_normalized=grid,
+        unit=canonical_doc.document_metadata.unit_denomination,
+        currency=canonical_doc.document_metadata.currency,
+        confidence=0.95 if best["score"] >= 20 else 0.85,
+        explanation=f"Extracted statement table '{title}' (Page {page_no}).",
+        provenance=[prov],
+        validation_status=ValidationStatus.VALIDATED,
+    )
 
 
 def _find_section_by_type_or_synonym(

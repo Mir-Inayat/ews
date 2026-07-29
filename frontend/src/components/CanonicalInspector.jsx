@@ -9,7 +9,7 @@ export default function CanonicalInspector({ documentId, onClose }) {
   useEffect(() => {
     if (documentId) {
       setLoading(true);
-      fetch(`http://localhost:8080/output/${documentId}/canonical_document.v0.json`)
+      fetch(`http://localhost:8080/api/v1/canonical-document/${encodeURIComponent(documentId)}`)
         .then(res => {
           if (!res.ok) throw new Error('Failed to load canonical document JSON');
           return res.json();
