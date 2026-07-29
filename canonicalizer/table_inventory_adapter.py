@@ -22,12 +22,14 @@ def build_canonical_tables(
     canonical_tables: list[CanonicalTable] = []
     table_extractions_raw = table_extractions_raw or []
 
-    # Map table extractions by table name or page
-    extractions_map: dict[str, dict[str, Any]] = {}
+    # Group table extractions by their source page to strictly enforce page provenance
+    extractions_by_page: dict[int, list[dict[str, Any]]] = {}
     for ext in table_extractions_raw:
-        t_name = ext.get("table_name", "")
-        if t_name:
-            extractions_map[t_name.lower()] = ext
+        pg = ext.get("source_page")
+        if pg:
+            if pg not in extractions_by_page:
+                extractions_by_page[pg] = []
+            extractions_by_page[pg].append(ext)
 
     for idx, dt in enumerate(detected_tables_raw):
         table_id = dt.get("table_id") or f"tbl_p{dt.get('page_no', 1)}_{idx + 1:02d}"
@@ -37,8 +39,22 @@ def build_canonical_tables(
         # Create bounding box
         bbox = BoundingBox(x0=50.0, y0=100.0, x1=540.0, y1=500.0)
 
-        # Check if we have extracted JSON for this table
-        ext_data = extractions_map.get(t_type.lower()) or extractions_map.get(f"standalone_{t_type.lower()}")
+        # STRICT PROVENANCE MATCH: Only use an extraction if it was actually extracted from this exact page
+        ext_data = None
+        if page_no in extractions_by_page:
+            # If multiple extractions on the same page, disambiguate by name/type
+            page_exts = extractions_by_page[page_no]
+            if len(page_exts) == 1:
+                ext_data = page_exts[0]
+            else:
+                for ext in page_exts:
+                    ext_name = ext.get("table_name", "").lower()
+                    if t_type.lower() in ext_name or ext_name in t_type.lower():
+                        ext_data = ext
+                        break
+                # Fallback if names don't match cleanly but they are on the same page
+                if not ext_data:
+                    ext_data = page_exts[0]
         cells: list[CanonicalCell] = []
         rows: list[CanonicalRow] = []
         cols: list[CanonicalColumn] = []
