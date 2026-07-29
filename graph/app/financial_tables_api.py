@@ -25,8 +25,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Query, UploadFile
+from fastapi import FastAPI, File, Query, UploadFile, Form
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 import sys as _sys
 _graph_root = str(Path(__file__).resolve().parent.parent)
@@ -72,6 +73,14 @@ app = FastAPI(
         "Product 2 (Custom Spec Engine) resolves user-defined schema specifications with provenance and status flags."
     ),
     version="3.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -126,7 +135,8 @@ async def get_custom_spec(spec_id: str) -> JSONResponse:
 @app.post("/api/v1/custom-extract", summary="Run Product 1 Canonicalizer + Product 2 Custom Spec Engine")
 async def custom_extract(
     file: UploadFile = File(...),
-    spec_id: str = Query("sample_custom_spec.json", description="Spec filename or custom JSON"),
+    spec_id: str = Form("sample_custom_spec.json", description="Spec filename"),
+    spec_json: str = Form(None, description="Custom Spec JSON String"),
 ) -> JSONResponse:
     """Ingest PDF -> Product 1 Canonicalizer -> Product 2 Custom Extraction Engine -> JSON + Excel."""
     with tempfile.TemporaryDirectory() as tmp_str:
@@ -149,8 +159,12 @@ async def custom_extract(
             )
 
         # Product 2: Load spec & extract
-        spec_file = Path(spec_id) if Path(spec_id).exists() else Path("sample_custom_spec.json")
-        spec_doc = load_custom_spec(spec_file)
+        if spec_json:
+            from contracts import CustomExtractionSpecDocument
+            spec_doc = CustomExtractionSpecDocument.model_validate_json(spec_json)
+        else:
+            spec_file = Path(spec_id) if Path(spec_id).exists() else Path("sample_custom_spec.json")
+            spec_doc = load_custom_spec(spec_file)
 
         result_doc = await asyncio.to_thread(
             extract_from_custom_spec,
