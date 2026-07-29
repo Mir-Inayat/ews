@@ -5,14 +5,6 @@ export default function CanonicalInspector({ documentId, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (documentId) {
-      setLoading(true);
-export default function CanonicalInspector({ documentId, onClose }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('sections');
 
   useEffect(() => {
