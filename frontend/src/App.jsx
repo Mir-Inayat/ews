@@ -124,7 +124,7 @@ function App() {
         <CanonicalInspector documentId={inspectDocId} onClose={() => setInspectDocId(null)} />
       )}
     </div>
-}
+  );
 }
 
 export default App;
