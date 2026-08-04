@@ -261,26 +261,21 @@ def _detect_heading(raw_text: str) -> tuple[str, float]:
 
     lines = raw_text.strip().splitlines()
 
-    # Strategy 1: Check first 5 lines for known heading keywords
+    # Check first 5 lines for both known keywords and structural patterns
     for line in lines[:5]:
-        cleaned = line.strip()
-        if not cleaned or len(cleaned) < 4:
-            continue
-
-        lower = cleaned.lower()
-
-        # Check against known headings
-        for known in _KNOWN_HEADINGS:
-            if known in lower:
-                if _is_valid_heading(cleaned) or len(cleaned) <= 80:
-                    return cleaned, 0.95
-
-    # Strategy 2: Check first 3 lines for structural heading patterns
-    for line in lines[:3]:
         cleaned = line.strip()
         if not _is_valid_heading(cleaned):
             continue
 
+        lower = cleaned.lower()
+
+        # 1. Check against known headings first (highest confidence)
+        matched_known = False
+        for known in _KNOWN_HEADINGS:
+            if known in lower:
+                return cleaned, 0.95
+
+        # 2. Check for structural heading patterns
         for pattern, conf in _HEADING_PATTERNS:
             if pattern.match(cleaned):
                 # Verify it's not a data line (mostly numbers)

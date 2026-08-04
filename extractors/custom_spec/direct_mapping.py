@@ -264,6 +264,37 @@ def _find_in_document_metadata(
     return None
 
 
+def _classify_field_source_type(spec: CustomExtractionFieldSpec) -> tuple[str, list[str]]:
+    """Return (source_type, valid_statement_types) for hard semantic gating."""
+    e_name = spec.entity_name.lower()
+    subcat = spec.subcategory.lower()
+    
+    # Financial statements
+    if any(k in e_name or k in subcat for k in ["balance sheet", "financial position"]):
+        return "financial_table", ["BALANCE_SHEET"]
+    if any(k in e_name or k in subcat for k in ["profit", "loss", "income"]):
+        return "financial_table", ["PNL"]
+    if any(k in e_name or k in subcat for k in ["cash flow"]):
+        return "financial_table", ["CASH_FLOW"]
+    if any(k in e_name or k in subcat for k in ["equity", "changes in equity"]):
+        return "financial_table", ["SOCIE"]
+        
+    # Governance
+    if any(k in e_name or k in subcat for k in ["board of directors", "board committees", "committee", "corporate governance"]):
+        return "governance", ["GOVERNANCE"]
+        
+    # Shareholding
+    if any(k in e_name or k in subcat for k in ["shareholding pattern", "major shareholders", "promoter"]):
+        return "shareholding", ["SHAREHOLDING"]
+        
+    # Ratios
+    if any(k in e_name or k in subcat for k in ["financial ratios", "debt equity", "current ratio", "return on"]):
+        return "ratio", ["RATIO", "OTHER"]
+        
+    # Narrative/Other
+    return "narrative", []
+
+
 def _find_table_entity(
     canonical_doc: CanonicalDocument,
     spec: CustomExtractionFieldSpec,
@@ -278,20 +309,27 @@ def _find_table_entity(
     """
     import ast
 
+    source_type, valid_stmt_types = _classify_field_source_type(spec)
+    
+    # If this field shouldn't come from a table, return None to force narrative/section fallback
+    if source_type == "narrative":
+        return None
+
     is_consolidated = "consolidated" in spec.entity_name.lower() or any("consolidated" in s for s in spec.synonyms)
     is_standalone = "standalone" in spec.entity_name.lower() or any("standalone" in s for s in spec.synonyms)
 
     # Core terms for matching table content
-    if any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["balance sheet", "financial position"]):
+    if source_type == "financial_table" and "BALANCE_SHEET" in valid_stmt_types:
         core_terms = ["balance sheet", "financial position", "assets", "liabilities", "equity and liabilities",
                       "non-current assets", "share capital", "total assets", "particulars"]
-    elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["profit", "loss", "income"]):
+    elif source_type == "financial_table" and "PNL" in valid_stmt_types:
         core_terms = ["profit and loss", "profit & loss", "income statement", "revenue", "total income",
                       "expenses", "revenue from operations"]
-    elif any(k in spec.entity_name.lower() or k in spec.subcategory.lower() for k in ["cash flow"]):
+    elif source_type == "financial_table" and "CASH_FLOW" in valid_stmt_types:
         core_terms = ["cash flow", "operating activities", "investing activities", "financing activities"]
     else:
-        core_terms = ["balance sheet", "profit and loss", "cash flow", "statement"]
+        # Don't use generic fallback for non-financial tables!
+        core_terms = [spec.entity_name.lower()] + [s.lower() for s in spec.synonyms]
 
     # Build page -> section title index (since table_ids are not populated in canonical doc)
     page_to_section_titles: dict[int, list[str]] = {}
@@ -408,6 +446,12 @@ def _find_table_entity(
         )[:20]
         header_text = " ".join(_cell_text(c) for c in label_cells).lower()
 
+        # Hard Semantic Gating: Reject tables that don't match the required type
+        # But if the table has no statement_type or it's "OTHER", we allow it to score via keywords
+        if valid_stmt_types and tbl.statement_type and tbl.statement_type != "OTHER":
+            if tbl.statement_type not in valid_stmt_types:
+                continue
+
         combined_text = (header_text + " " + sec_combined).strip()
 
         score = 0
@@ -491,6 +535,12 @@ def _find_table_entity(
 
     if best["score"] <= 0:
         return None
+        
+    # Honest confidence thresholding
+    confidence = 0.95 if best["score"] >= 25 else 0.85
+    if source_type != "financial_table" and best["score"] < 10:
+        # If it's a non-financial table with weak matching, don't return it
+        return None
 
     tbl_obj = best["table"]
     linked_sec = best["section"]
@@ -548,7 +598,7 @@ def _find_table_entity(
         value_normalized=grid,
         unit=canonical_doc.document_metadata.unit_denomination,
         currency=canonical_doc.document_metadata.currency,
-        confidence=0.95 if best["score"] >= 25 else 0.85,
+        confidence=confidence,
         explanation=f"Extracted '{spec.entity_name}' from table {tbl_obj.table_id} (Page {page_no}). Section context: {best['sec_titles'][:120]}",
         provenance=[prov],
         validation_status=ValidationStatus.VALIDATED,

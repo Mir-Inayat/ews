@@ -334,19 +334,77 @@ def detect_tables(
                     "parent_section_id": parent_section_id,
                 })
 
-    # Same-page deduplication pass: eliminate duplicate table entries on the same page
-    deduped: list[dict[str, Any]] = []
-    seen_page_types: dict[tuple[int, str], dict[str, Any]] = {}
+    # Same-page deduplication pass with LLM disambiguation for financial statements
+    from collections import defaultdict
+    page_detections = defaultdict(list)
     for d in detected:
-        key = (d["page_no"], d["table_type"])
-        if key not in seen_page_types:
-            seen_page_types[key] = d
-        else:
-            # Keep the entry with higher complexity_score / confidence
-            if d.get("complexity_score", 0) > seen_page_types[key].get("complexity_score", 0):
-                seen_page_types[key] = d
+        page_detections[d["page_no"]].append(d)
+        
+    final_detected = []
+    for page_no, det_list in page_detections.items():
+        if len(det_list) == 1:
+            final_detected.append(det_list[0])
+            continue
+            
+        cat_groups = defaultdict(list)
+        for d in det_list:
+            cat_groups[d["table_category"]].append(d)
+            
+        for cat, cats_dets in cat_groups.items():
+            if len(cats_dets) == 1:
+                final_detected.append(cats_dets[0])
+                continue
+                
+            if cat == "financial_statement":
+                # Check if multiple types are detected on same page
+                unique_types = list(set(d["table_type"] for d in cats_dets))
+                if len(unique_types) > 1:
+                    _log(f"[TableDetect] Page {page_no} has multiple financial statements: {unique_types}. Requesting LLM disambiguation...")
+                    try:
+                        from .llm_config import get_llm
+                        from .llm_utils import llm_call_with_retry, extract_json_from_response
+                        page_text = next((p.get("raw_text", "") for p in pages if p["page_number"] == page_no), "")
+                        llm = get_llm()
+                        prompt = (
+                            f"Page {page_no} of a financial report contains the following text (truncated):\n\n"
+                            f"{page_text[:2000]}\n\n"
+                            f"Does this page contain MULTIPLE distinct financial statements (e.g. BOTH a Balance Sheet AND a Profit & Loss statement)? "
+                            f"Or is it just ONE statement that happens to mention keywords from another?\n"
+                            f"Answer ONLY in JSON format: {{\"has_multiple\": true/false, \"statement_types_present\": [\"balance_sheet\", \"profit_and_loss\"]}}"
+                        )
+                        res = llm_call_with_retry(llm, prompt)
+                        parsed = extract_json_from_response(res) if res else {}
+                        
+                        if parsed.get("has_multiple") and parsed.get("statement_types_present"):
+                            valid_types = [t.lower() for t in parsed.get("statement_types_present")]
+                            # Keep best detection for each valid type
+                            type_best = {}
+                            for cd in cats_dets:
+                                if cd["table_type"] in valid_types:
+                                    tt = cd["table_type"]
+                                    if tt not in type_best or cd.get("complexity_score", 0) > type_best[tt].get("complexity_score", 0):
+                                        type_best[tt] = cd
+                            if type_best:
+                                final_detected.extend(type_best.values())
+                                continue
+                    except Exception as e:
+                        _log(f"[TableDetect] LLM disambiguation failed for page {page_no}: {e}")
+            
+            # Fallback for non-financial or if LLM says false / fails
+            type_best = {}
+            for cd in cats_dets:
+                tt = cd["table_type"]
+                if tt not in type_best or cd.get("complexity_score", 0) > type_best[tt].get("complexity_score", 0):
+                    type_best[tt] = cd
+                    
+            # If it's a financial statement and LLM didn't keep multiple, just keep the absolute best one
+            if cat == "financial_statement":
+                best_overall = max(cats_dets, key=lambda x: x.get("complexity_score", 0))
+                final_detected.append(best_overall)
+            else:
+                final_detected.extend(type_best.values())
 
-    detected = list(seen_page_types.values())
+    detected = final_detected
 
     _log(f"[TableDetect] Detected {len(detected)} unique tables across "
          f"{len(set(d['page_no'] for d in detected))} pages")
