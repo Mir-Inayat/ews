@@ -24,7 +24,7 @@ extractions_raw = [
 canonical_tables = build_canonical_tables(detected_tables, extractions_raw)
 
 for tbl in canonical_tables:
-    print(f"Table ID: {tbl.table_id}, Page: {tbl.page_numbers}")
+    print(f"Table ID: {tbl.table_id}, Page: {tbl.page_numbers}, StatementType: {tbl.statement_type}, Scope: {tbl.scope}")
     if tbl.rows and len(tbl.rows) > 1:
         cell_val = tbl.rows[1].cell_ids[0]
         cell_text = next(c.raw_text for c in tbl.cells if c.cell_id == cell_val)

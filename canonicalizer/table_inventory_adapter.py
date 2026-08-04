@@ -115,6 +115,30 @@ def build_canonical_tables(
 
                 rows.append(CanonicalRow(row_index=r_idx, row_id=r_id, cell_ids=cell_ids_in_row, is_header=False, role="data"))
 
+        # Derive statement_type and scope
+        stmt_type_raw = (dt.get("table_type") or "").upper()
+        if "BALANCE" in stmt_type_raw:
+            stmt_type = "BALANCE_SHEET"
+        elif "PROFIT" in stmt_type_raw or "LOSS" in stmt_type_raw or "PNL" in stmt_type_raw:
+            stmt_type = "PNL"
+        elif "CASH" in stmt_type_raw:
+            stmt_type = "CASH_FLOW"
+        elif "EQUITY" in stmt_type_raw or "CHANGES" in stmt_type_raw:
+            stmt_type = "SOCIE"
+        elif "SHAREHOLDING" in stmt_type_raw:
+            stmt_type = "SHAREHOLDING"
+        elif "RATIO" in stmt_type_raw:
+            stmt_type = "RATIO"
+        elif "BOARD" in stmt_type_raw or "COMMITTEE" in stmt_type_raw:
+            stmt_type = "GOVERNANCE"
+        elif stmt_type_raw:
+            stmt_type = stmt_type_raw
+        else:
+            stmt_type = "OTHER"
+
+        scope_raw = (dt.get("table_name", "") + " " + str(ext_data.get("table_name", "") if ext_data else "")).lower()
+        scope = "CONSOLIDATED" if "consolidated" in scope_raw else "STANDALONE"
+
         canonical_tables.append(
             CanonicalTable(
                 table_id=table_id,
@@ -127,6 +151,8 @@ def build_canonical_tables(
                 cells=cells,
                 validation_status=ValidationStatus.VALIDATED if cells else ValidationStatus.NOT_RUN,
                 confidence=dt.get("detection_confidence", 0.85),
+                statement_type=stmt_type,
+                scope=scope,
             )
         )
 

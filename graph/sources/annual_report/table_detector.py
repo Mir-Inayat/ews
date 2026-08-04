@@ -56,6 +56,8 @@ class TableCategory(str, enum.Enum):
     RATIO_TABLE = "ratio_table"                    # Key financial ratios
     SEGMENT_TABLE = "segment_table"                # Segment information
     SCHEDULE_TABLE = "schedule_table"              # Schedules to financial statements
+    GOVERNANCE_TABLE = "governance_table"          # Board & Committee composition
+    INVESTOR_TABLE = "investor_table"              # Share price performance & market cap
     OTHER = "other"                                # Miscellaneous tables
 
 
@@ -69,6 +71,9 @@ _TABLE_TYPE_TO_CATEGORY: dict[str, TableCategory] = {
     "financial_ratios": TableCategory.RATIO_TABLE,
     "debt_schedule": TableCategory.SCHEDULE_TABLE,
     "segment_information": TableCategory.SEGMENT_TABLE,
+    "board_composition": TableCategory.GOVERNANCE_TABLE,
+    "committee_composition": TableCategory.GOVERNANCE_TABLE,
+    "market_price": TableCategory.INVESTOR_TABLE,
 }
 
 # Taxonomy categories that indicate financial-statement pages
@@ -162,6 +167,9 @@ _TABLE_TYPE_PATTERNS: dict[str, tuple[list[re.Pattern], int]] = {
             re.compile(r"\bdebt[\s-]equity\s+ratio\b", re.I),
             re.compile(r"\bcurrent\s+ratio\b", re.I),
             re.compile(r"\breturn\s+on\s+(?:equity|capital|net\s+worth)\b", re.I),
+            re.compile(r"\bdebtors\s+turnover\b", re.I),
+            re.compile(r"\binventory\s+turnover\b", re.I),
+            re.compile(r"\binterest\s+coverage\b", re.I),
         ],
         2,
     ),
@@ -182,6 +190,35 @@ _TABLE_TYPE_PATTERNS: dict[str, tuple[list[re.Pattern], int]] = {
             re.compile(r"\bgeographical\s+segment", re.I),
             re.compile(r"\bsegment\s+revenue\b", re.I),
             re.compile(r"\bsegment\s+(?:assets|liabilities|result)\b", re.I),
+        ],
+        2,
+    ),
+    "board_composition": (
+        [
+            re.compile(r"\bboard\s+of\s+directors\b", re.I),
+            re.compile(r"\bcomposition\s+of\s+board\b", re.I),
+            re.compile(r"\bcategory\s+of\s+directors\b", re.I),
+            re.compile(r"\bindependent\s+director", re.I),
+            re.compile(r"\bexecutive\s+director", re.I),
+            re.compile(r"\bdin\b", re.I),
+        ],
+        2,
+    ),
+    "committee_composition": (
+        [
+            re.compile(r"\baudit\s+committee\b", re.I),
+            re.compile(r"\bnomination\s+(?:and|&)\s+remuneration\b", re.I),
+            re.compile(r"\bstakeholders?\s+(?:relationship\s+)?committee\b", re.I),
+            re.compile(r"\bmembers?\s+of\s+the\s+committee\b", re.I),
+        ],
+        2,
+    ),
+    "market_price": (
+        [
+            re.compile(r"\bmarket\s+price\s+data\b", re.I),
+            re.compile(r"\bhigh\s+(?:and|&)\s+low\s+(?:prices|share\s+price)\b", re.I),
+            re.compile(r"\bbse\b.*\bnse\b", re.I),
+            re.compile(r"\bshare\s+price\s+performance\b", re.I),
         ],
         2,
     ),
@@ -297,7 +334,21 @@ def detect_tables(
                     "parent_section_id": parent_section_id,
                 })
 
-    _log(f"[TableDetect] Detected {len(detected)} tables across "
+    # Same-page deduplication pass: eliminate duplicate table entries on the same page
+    deduped: list[dict[str, Any]] = []
+    seen_page_types: dict[tuple[int, str], dict[str, Any]] = {}
+    for d in detected:
+        key = (d["page_no"], d["table_type"])
+        if key not in seen_page_types:
+            seen_page_types[key] = d
+        else:
+            # Keep the entry with higher complexity_score / confidence
+            if d.get("complexity_score", 0) > seen_page_types[key].get("complexity_score", 0):
+                seen_page_types[key] = d
+
+    detected = list(seen_page_types.values())
+
+    _log(f"[TableDetect] Detected {len(detected)} unique tables across "
          f"{len(set(d['page_no'] for d in detected))} pages")
 
     # Log summary by type

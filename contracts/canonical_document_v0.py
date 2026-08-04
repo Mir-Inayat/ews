@@ -115,8 +115,9 @@ class CanonicalTable(BaseModel):
     columns: list[CanonicalColumn] = Field(default_factory=list)
     cells: list[CanonicalCell] = Field(default_factory=list)
     validation_status: ValidationStatus = ValidationStatus.NOT_RUN
-    validation_issues: list[ValidationIssue] = Field(default_factory=list)
     confidence: Optional[float] = None
+    statement_type: Optional[str] = None
+    scope: Optional[str] = None
 
 
 class CanonicalSection(BaseModel):
