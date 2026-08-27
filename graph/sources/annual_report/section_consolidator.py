@@ -53,6 +53,14 @@ class ConsolidatedSection:
         self.page_count = self.end_page - self.start_page + 1
         if not self.normalized_section_name:
             self.normalized_section_name = self.raw_section_name
+            
+        # Fix: set source from boundary_source for quality score
+        if self.boundary_source:
+            self.source = self.boundary_source
+            
+        # Fix: VLM targets get LOW priority if content_type isn't "table"
+        if self.category == "Financial Statements" or self.section_type == "Financial Statements":
+            self.content_type = "table"
 
 
 # ===================================================================

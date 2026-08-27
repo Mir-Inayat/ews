@@ -56,6 +56,8 @@ class TableCategory(str, enum.Enum):
     RATIO_TABLE = "ratio_table"                    # Key financial ratios
     SEGMENT_TABLE = "segment_table"                # Segment information
     SCHEDULE_TABLE = "schedule_table"              # Schedules to financial statements
+    GOVERNANCE_TABLE = "governance_table"          # Board & Committee composition
+    INVESTOR_TABLE = "investor_table"              # Share price performance & market cap
     OTHER = "other"                                # Miscellaneous tables
 
 
@@ -69,6 +71,9 @@ _TABLE_TYPE_TO_CATEGORY: dict[str, TableCategory] = {
     "financial_ratios": TableCategory.RATIO_TABLE,
     "debt_schedule": TableCategory.SCHEDULE_TABLE,
     "segment_information": TableCategory.SEGMENT_TABLE,
+    "board_composition": TableCategory.GOVERNANCE_TABLE,
+    "committee_composition": TableCategory.GOVERNANCE_TABLE,
+    "market_price": TableCategory.INVESTOR_TABLE,
 }
 
 # Taxonomy categories that indicate financial-statement pages
@@ -162,6 +167,9 @@ _TABLE_TYPE_PATTERNS: dict[str, tuple[list[re.Pattern], int]] = {
             re.compile(r"\bdebt[\s-]equity\s+ratio\b", re.I),
             re.compile(r"\bcurrent\s+ratio\b", re.I),
             re.compile(r"\breturn\s+on\s+(?:equity|capital|net\s+worth)\b", re.I),
+            re.compile(r"\bdebtors\s+turnover\b", re.I),
+            re.compile(r"\binventory\s+turnover\b", re.I),
+            re.compile(r"\binterest\s+coverage\b", re.I),
         ],
         2,
     ),
@@ -182,6 +190,35 @@ _TABLE_TYPE_PATTERNS: dict[str, tuple[list[re.Pattern], int]] = {
             re.compile(r"\bgeographical\s+segment", re.I),
             re.compile(r"\bsegment\s+revenue\b", re.I),
             re.compile(r"\bsegment\s+(?:assets|liabilities|result)\b", re.I),
+        ],
+        2,
+    ),
+    "board_composition": (
+        [
+            re.compile(r"\bboard\s+of\s+directors\b", re.I),
+            re.compile(r"\bcomposition\s+of\s+board\b", re.I),
+            re.compile(r"\bcategory\s+of\s+directors\b", re.I),
+            re.compile(r"\bindependent\s+director", re.I),
+            re.compile(r"\bexecutive\s+director", re.I),
+            re.compile(r"\bdin\b", re.I),
+        ],
+        2,
+    ),
+    "committee_composition": (
+        [
+            re.compile(r"\baudit\s+committee\b", re.I),
+            re.compile(r"\bnomination\s+(?:and|&)\s+remuneration\b", re.I),
+            re.compile(r"\bstakeholders?\s+(?:relationship\s+)?committee\b", re.I),
+            re.compile(r"\bmembers?\s+of\s+the\s+committee\b", re.I),
+        ],
+        2,
+    ),
+    "market_price": (
+        [
+            re.compile(r"\bmarket\s+price\s+data\b", re.I),
+            re.compile(r"\bhigh\s+(?:and|&)\s+low\s+(?:prices|share\s+price)\b", re.I),
+            re.compile(r"\bbse\b.*\bnse\b", re.I),
+            re.compile(r"\bshare\s+price\s+performance\b", re.I),
         ],
         2,
     ),
@@ -297,7 +334,79 @@ def detect_tables(
                     "parent_section_id": parent_section_id,
                 })
 
-    _log(f"[TableDetect] Detected {len(detected)} tables across "
+    # Same-page deduplication pass with LLM disambiguation for financial statements
+    from collections import defaultdict
+    page_detections = defaultdict(list)
+    for d in detected:
+        page_detections[d["page_no"]].append(d)
+        
+    final_detected = []
+    for page_no, det_list in page_detections.items():
+        if len(det_list) == 1:
+            final_detected.append(det_list[0])
+            continue
+            
+        cat_groups = defaultdict(list)
+        for d in det_list:
+            cat_groups[d["table_category"]].append(d)
+            
+        for cat, cats_dets in cat_groups.items():
+            if len(cats_dets) == 1:
+                final_detected.append(cats_dets[0])
+                continue
+                
+            if cat == "financial_statement":
+                # Check if multiple types are detected on same page
+                unique_types = list(set(d["table_type"] for d in cats_dets))
+                if len(unique_types) > 1:
+                    _log(f"[TableDetect] Page {page_no} has multiple financial statements: {unique_types}. Requesting LLM disambiguation...")
+                    try:
+                        from .llm_config import get_llm
+                        from .llm_utils import llm_call_with_retry, extract_json_from_response
+                        page_text = next((p.get("raw_text", "") for p in pages if p["page_number"] == page_no), "")
+                        llm = get_llm()
+                        prompt = (
+                            f"Page {page_no} of a financial report contains the following text (truncated):\n\n"
+                            f"{page_text[:2000]}\n\n"
+                            f"Does this page contain MULTIPLE distinct financial statements (e.g. BOTH a Balance Sheet AND a Profit & Loss statement)? "
+                            f"Or is it just ONE statement that happens to mention keywords from another?\n"
+                            f"Answer ONLY in JSON format: {{\"has_multiple\": true/false, \"statement_types_present\": [\"balance_sheet\", \"profit_and_loss\"]}}"
+                        )
+                        res = llm_call_with_retry(llm, prompt)
+                        parsed = extract_json_from_response(res) if res else {}
+                        
+                        if parsed.get("has_multiple") and parsed.get("statement_types_present"):
+                            valid_types = [t.lower() for t in parsed.get("statement_types_present")]
+                            # Keep best detection for each valid type
+                            type_best = {}
+                            for cd in cats_dets:
+                                if cd["table_type"] in valid_types:
+                                    tt = cd["table_type"]
+                                    if tt not in type_best or cd.get("complexity_score", 0) > type_best[tt].get("complexity_score", 0):
+                                        type_best[tt] = cd
+                            if type_best:
+                                final_detected.extend(type_best.values())
+                                continue
+                    except Exception as e:
+                        _log(f"[TableDetect] LLM disambiguation failed for page {page_no}: {e}")
+            
+            # Fallback for non-financial or if LLM says false / fails
+            type_best = {}
+            for cd in cats_dets:
+                tt = cd["table_type"]
+                if tt not in type_best or cd.get("complexity_score", 0) > type_best[tt].get("complexity_score", 0):
+                    type_best[tt] = cd
+                    
+            # If it's a financial statement and LLM didn't keep multiple, just keep the absolute best one
+            if cat == "financial_statement":
+                best_overall = max(cats_dets, key=lambda x: x.get("complexity_score", 0))
+                final_detected.append(best_overall)
+            else:
+                final_detected.extend(type_best.values())
+
+    detected = final_detected
+
+    _log(f"[TableDetect] Detected {len(detected)} unique tables across "
          f"{len(set(d['page_no'] for d in detected))} pages")
 
     # Log summary by type

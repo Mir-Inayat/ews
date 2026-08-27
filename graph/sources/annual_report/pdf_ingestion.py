@@ -211,6 +211,46 @@ def ingest_pdf(pdf_path: str | Path, progress_callback=None) -> list[dict[str, A
     return pages_data
 
 
+def _is_valid_heading(text: str) -> bool:
+    """Validate if a candidate string is a genuine section heading."""
+    if not text:
+        return False
+    cleaned = text.strip()
+    if len(cleaned) < 4 or len(cleaned) > 120:
+        return False
+
+    words = cleaned.split()
+    if len(words) > 15:
+        return False
+
+    # Must start with uppercase letter or roman/arabic number or quotation mark
+    first_char = cleaned[0]
+    if not (first_char.isupper() or first_char.isdigit() or first_char in ('"', "'", "(")):
+        return False
+
+    lower = cleaned.lower()
+
+    # Reject sentence fragments ending mid-sentence
+    invalid_endings = (",", "...", " and", " or", " of", " to", " for", " in", " on", " with", " by", " as", " at", " that", " which", " if")
+    if lower.endswith(invalid_endings):
+        return False
+
+    # Reject invalid starting dependency phrases
+    invalid_starts = (
+        "of ", "and ", "or ", "that ", "which ", "if ", "a, ", "for ", "to ", "for the ",
+        "assumption.", "state of affairs", "during the year,", "all equity investments",
+        "1. shareholder", "2. developing", "3. executing"
+    )
+    if any(lower.startswith(prefix) for prefix in invalid_starts):
+        return False
+
+    # Reject addresses/bank listings or email/web URLs
+    if "industrial estate" in lower or "hdfc bank" in lower or "http:" in lower or "https:" in lower or "@" in lower:
+        return False
+
+    return True
+
+
 def _detect_heading(raw_text: str) -> tuple[str, float]:
     """Detect the primary heading on a page.
 
@@ -221,25 +261,21 @@ def _detect_heading(raw_text: str) -> tuple[str, float]:
 
     lines = raw_text.strip().splitlines()
 
-    # Strategy 1: Check first 5 lines for known heading keywords
+    # Check first 5 lines for both known keywords and structural patterns
     for line in lines[:5]:
         cleaned = line.strip()
-        if not cleaned or len(cleaned) < 4:
+        if not _is_valid_heading(cleaned):
             continue
 
         lower = cleaned.lower()
 
-        # Check against known headings
+        # 1. Check against known headings first (highest confidence)
+        matched_known = False
         for known in _KNOWN_HEADINGS:
             if known in lower:
                 return cleaned, 0.95
 
-    # Strategy 2: Check first 3 lines for structural heading patterns
-    for line in lines[:3]:
-        cleaned = line.strip()
-        if not cleaned or len(cleaned) < 4 or len(cleaned) > 120:
-            continue
-
+        # 2. Check for structural heading patterns
         for pattern, conf in _HEADING_PATTERNS:
             if pattern.match(cleaned):
                 # Verify it's not a data line (mostly numbers)

@@ -1,0 +1,732 @@
+Yes. I did a detailed cross-check of the extraction against the source PDF, and there are major accuracy issues. The extraction contains a mix of:
+Correct financial data
+Wrong section mappings
+Hallucinated entity assignments
+Category misclassifications
+Missed disclosures that actually exist in the report
+Most concerningly, the PDF is not Landsmill Green Limited. It is actually Excel Realty N Infra Limited (formerly Excel Infoways Ltd.). [Landsmill...en Limited | PDF]
+Overall Assessment
+Area
+Accuracy
+Company name
+❌ Incorrect
+Financial statements
+✅ Mostly correct
+Board/KMP
+⚠️ Partially correct
+Subsidiaries
+⚠️ Exists but extracted incorrectly
+MD&A
+⚠️ Partially correct
+Corporate Governance
+⚠️ Partially correct
+Shareholding
+❌ Mostly incorrect
+Related Party
+❌ Incorrect
+Board Committees
+❌ Incorrect
+Financial Ratios
+❌ Incorrect
+ESG
+⚠️ Weak
+Investor Information
+❌ Incorrect
+
+Estimated overall extraction quality: ~45-55%
+
+Critical Errors
+1. Company Name Wrong
+Extraction:
+Landsmill Green Limited
+Source PDF:
+Excel Realty N Infra Limited (Formerly Excel Infoways Ltd.) [Landsmill...en Limited | PDF]
+This alone indicates the extraction pipeline is carrying metadata from another document.
+
+2. Subsidiaries & Group Structure Wrong
+Extraction mapped a Balance Sheet table as:
+Subsidiaries & Group Structure [Landsmill...action (4) | Excel]
+Actual disclosure:
+Company has one subsidiary:
+EXCEL INFO FZE (UAE) - 100% wholly owned subsidiary [Landsmill...en Limited | PDF]
+The extracted answer is completely incorrect.
+
+3. Statement of Changes in Equity Wrong
+Extraction uses Balance Sheet table TB_D4AB87 and labels it:
+Statement of Changes in Equity [Landsmill...action (4) | Excel]
+That is not a Statement of Changes in Equity.
+This is a pure classification error.
+
+4. Related Party Transactions Wrong
+Extraction:
+Uses Profit & Loss table as Related Party Transactions. [Landsmill...action (4) | Excel]
+Actual Report:
+Related party disclosed:
+Ranjana Construction Pvt Ltd
+Sales ₹1,15,95,720
+Security Deposit ₹2,93,00,000 [Landsmill...en Limited | PDF]
+Extraction completely missed it.
+
+5. Board of Directors Wrong
+Extraction:
+Mapped P&L table to "Board of Directors". [Landsmill...action (4) | Excel]
+Actual Board:
+Lakhmendra Khurana
+Ranjana Khurana
+Arpit Khurana
+Rajat Raja Kothari
+Himanshu Gupta
+Shweta Mundra
+Subrata Kumar Dey (retired) [Landsmill...en Limited | PDF]
+This answer is entirely wrong.
+
+6. Board Committees Wrong
+Extraction:
+Mapped P&L statement to Board Committees. [Landsmill...action (4) | Excel]
+Actual Committees:
+Audit Committee
+Himanshu Gupta
+Subrata Kumar Dey
+Shweta Mundra
+Lakhmendra Khurana [Landsmill...en Limited | PDF]
+NRC
+Himanshu Gupta
+Subrata Kumar Dey
+Rajat Kothari [Landsmill...en Limited | PDF]
+Stakeholder Committee
+Subrata Kumar Dey
+Lakhmendra Khurana
+Himanshu Gupta [Landsmill...en Limited | PDF]
+Extraction missed all of this.
+
+7. Shareholding Pattern Wrong
+Extraction:
+Mapped P&L table as Shareholding Pattern. [Landsmill...action (4) | Excel]
+Actual shareholding:
+Promoter Group:
+19.12%
+Public:
+80.88% [Landsmill...en Limited | PDF]
+This is a major extraction failure.
+
+8. Major Shareholders Wrong
+Actual promoter holdings:
+Lakhmendra Khurana: 14,51,39,451 shares
+Ranjana Khurana: 11,49,02,682 shares
+Arpit Khurana: 91,29,414 shares [Landsmill...en Limited | PDF]
+Extraction never captured this.
+
+9. Financial Ratios Wrong
+Extraction:
+Uses P&L statement. [Landsmill...action (4) | Excel]
+Actual report contains ratio table:
+Debtors Turnover 3.71
+Inventory Turnover 9.78
+Interest Coverage 91.65
+Current Ratio 30.85
+Debt Equity Ratio 0.03
+Net Profit Margin 0.09 [Landsmill...en Limited | PDF]
+Missed.
+
+10. Investor Information Wrong
+Extraction:
+"of the Notice of the 23rd AGM of the Company" [Landsmill...action (4) | Excel]
+as:
+Share Price Performance
+Market Capitalization
+Investor Relations
+Shareholder Information
+This is invalid extraction logic.
+Actual share price data exists on pages 49-50. [Landsmill...en Limited | PDF]
+
+What Was Extracted Correctly
+Balance Sheet
+Most values match PDF:
+Equity Share Capital ≈ ₹141.07 Cr
+Other Equity ≈ ₹321.76 Cr
+Total Assets ≈ ₹1776.88 Cr [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+✅ High confidence.
+
+Profit & Loss
+Values match:
+Revenue from operations 136268.94
+Other income 57046.80
+Profit after tax 12938.22 [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+✅ High confidence.
+
+Cash Flow
+Looks consistent with source tables. [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+✅ High confidence.
+
+Business / MD&A Outlook
+The extracted expansion plans are largely grounded:
+Infrastructure growth
+Affordable housing
+Commercial real estate
+Trading segment growth
+Expansion of services [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+✅ Mostly correct.
+
+Missed Important Information
+The extraction should have captured:
+Nature of Business
+Infrastructure
+IT/BPO
+General Trading [Landsmill...en Limited | PDF]
+Subsidiary
+Excel Info FZE (100%) [Landsmill...en Limited | PDF]
+Dividend
+No dividend declared [Landsmill...en Limited | PDF]
+CSR
+CSR provisions not applicable [Landsmill...en Limited | PDF]
+Auditor Opinion
+Unmodified opinion
+Emphasis on Expected Credit Loss provisioning under Ind AS 109 [Landsmill...en Limited | PDF]
+SEBI Litigation
+SAT appeal pending against SEBI order
+Stay granted by SAT [Landsmill...en Limited | PDF]
+
+Final Verdict
+If this extraction is intended for production use, I would classify it as:
+Financial Tables: ~85-90% accurate ✅
+Entity/Section Mapping: ~25-35% accurate ❌
+Governance & Shareholding Extraction: ~20% accurate ❌
+Overall Document Extraction: ~50% accurate ⚠️
+The biggest issue is not number extraction. The biggest issue is semantic routing and section classification, where many categories (Board, Committees, Shareholding, Related Party, Financial Ratios, Subsidiaries) were populated using completely unrelated financial tables instead of the actual sections present in the report. [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+
+
+
+Yes. In fact, the canonical document is where the problem starts.
+Looking at the section inventory, I'd estimate:
+~40% of sections are correctly segmented
+~30% are partially correct but poorly anchored
+~30% are outright wrong classifications
+Which is enough to contaminate downstream extraction, because your extraction engine appears to operate as:
+PDF
+↓
+Canonical Sections
+↓
+Field Extractors
+↓
+Custom Extraction XLSX
+If the canonical layer routes a query to the wrong section, even a perfect extractor will produce garbage.
+
+Section-by-Section Audit
+✅ GOOD
+Management Discussion & Analysis
+Pages 24-27
+Management Discussion & Analysis Report
+Classification:
+Management Discussion & Analysis
+Correct. This is exactly the MD&A section. [Landsmill...en Limited | PDF]
+
+Corporate Governance Report
+Pages 29-33
+Corporate Governance Report
+Classification:
+Management & Governance
+Correct. [Landsmill...en Limited | PDF]
+
+Independent Auditors Report
+Page 59
+Independent Auditors' Report
+Classification:
+Financial Statements
+Acceptable. [Landsmill...en Limited | PDF]
+
+Standalone Financials
+Pages:
+68
+69
+70-80
+Sections:
+Balance Sheet
+Profit & Loss
+Cash Flow
+Notes
+These are correctly identified. [Landsmill...en Limited | PDF]
+
+Consolidated Financials
+Pages 102-142
+Mostly correct.
+The consolidated audit report, financials, notes and accounting policies are all in the right neighborhood. [Landsmill...en Limited | PDF]
+
+⚠️ PARTIALLY CORRECT
+CORPORATE INFORMATION BOARD OF DIRECTORS
+Current:
+Page 3-8
+Category:
+Management & Governance
+Issue:
+Page 3 contains Corporate Information.
+Pages 4-8 contain Directors Report.
+These should not be merged.
+More correct structure:
+Corporate Information
+Board of Directors
+KMP
+Auditors
+Bankers
+and
+Directors Report
+as separate sections. [Landsmill...en Limited | PDF]
+
+ESG Section
+Current:
+SEBI vide circular dated May 10 2021...
+Pages 13-23
+Category:
+ESG & Sustainability
+Problem:
+Pages 13-23 are not ESG.
+This range contains:
+conservation of energy
+forex disclosures
+annexures
+AOC-1
+AOC-2
+remuneration disclosures
+secretarial audit
+Only one paragraph discusses BRSR applicability. [Landsmill...en Limited | PDF]
+Should be:
+Statutory Disclosures
+Annexures
+Secretarial Audit
+not ESG.
+
+Risk Management Sections
+Current:
+Page 81
+29 Financial risk management objectives and policies
+Correct.
+But:
+Page 82-91
+credit risk management...
+should be child content of the same section, not another risk section.
+Similarly for consolidated pages 121-131.
+Over-segmentation. [Landsmill...en Limited | PDF]
+
+❌ BADLY WRONG
+These are the ones causing downstream failures.
+
+Section:
+of the Notice of the 23rd AGM of the Company
+Page 11
+Investor Information
+This is nonsense.
+This sentence occurs in a governance/legal context, not investor relations. [Landsmill...en Limited | PDF]
+Because this section is tagged:
+Investor Information
+your extractor later produced:
+Market Capitalization
+Shareholder Information
+Investor Relations
+Share Price Performance
+from the sentence:
+of the Notice of the 23rd AGM...
+which explains those hallucinations.
+This section should not exist.
+
+Section:
+During the year, materially significant related party transactions...
+Page 12
+Investor Information
+Current classification:
+Investor Information
+Actual classification:
+Related Party Transactions
+Corporate Governance
+or
+Notes to Accounts
+This misclassification directly explains why your related-party extractor failed. [Landsmill...en Limited | PDF]
+
+Section:
+INTERNAL CONTROL SYSTEMS AND THEIR ADEQUACY
+Page 28
+Audit Information
+Not really audit information.
+This belongs under:
+Risk Management
+Internal Controls
+MD&A
+The current label is misleading. [Landsmill...en Limited | PDF]
+
+Section:
+A, Laxmi Industrial Estate HDFC Bank Ltd...
+Page 34-41
+Unclassified
+Huge red flag.
+This is one of the largest corruption indicators.
+Pages 34-41 are actually:
+Director profiles
+Board composition
+Board skills
+Independent directors
+Committee structures
+Audit committee
+NRC
+Evaluation
+Some of the most important governance content. [Landsmill...en Limited | PDF]
+Your classifier completely lost the section header.
+This is likely why:
+Board of Directors
+Board Committees
+KMP
+all failed downstream.
+
+Section:
+2. Developing and managing / executing business plans...
+Page 42-46
+Risk Management
+This is extracted from the middle of an NRC evaluation table.
+Not a section title.
+This should never become a canonical section.
+Pages 42-46 are:
+Director Remuneration
+Stakeholder Committee
+General Meetings
+Communication
+not Risk Management. [Landsmill...en Limited | PDF]
+
+Section:
+All equity investments are measured at fair value...
+Page 96-101
+Financial Statements
+This is a paragraph inside accounting policies.
+Should be:
+Significant Accounting Policies
+not an independent section.
+
+Section:
+state of affairs consolidated profit/loss...
+Page 103
+Financial Statements
+This is a sentence from audit opinion.
+Not a section heading.
+Should not exist. [Landsmill...en Limited | PDF]
+
+Section:
+assumption. If we conclude that a material uncertainty exists...
+Page 104-105
+Audit Information
+Again a paragraph fragment mistaken as section title.
+Should be nested under:
+Consolidated Auditor Report
+
+Section:
+of 5 years i.e. from conclusion of AGM...
+Page 143-153
+Management & Governance
+This is AGM notice content.
+Should be:
+Notice of AGM
+Shareholder Resolutions
+not governance.
+
+Section:
+1. Shareholder will be provided a facility...
+Page 154-156
+Investor Information
+Wrong.
+This is AGM participation instructions, not investor information.
+
+Section:
+for the term of five consecutive years...
+Page 157-163
+Management & Governance
+Again AGM notice resolution text.
+Not governance reporting. [Landsmill...en Limited | PDF]
+
+Root Cause
+I think your canonical builder is doing:
+If heading confidence low
+↓
+pick first bold sentence
+↓
+promote sentence to section title
+Examples:
+of the Notice of the 23rd AGM...
+state of affairs consolidated profit...
+assumption. If we conclude...
+These are impossible to be real section headers.
+A good canonical validator should reject titles when:
+starts lowercase
+contains >15 words
+ends mid-sentence
+contains grammar dependency
+contains comma continuation
+Almost all bad sections violate one of those rules.
+
+Impact on Downstream Accuracy
+The biggest failures in your extraction can be traced directly to canonical section errors:
+Extracted Field
+Root Cause
+Board of Directors
+Pages 34-41 became "Unclassified"
+Board Committees
+Pages 34-44 incorrectly segmented
+Related Party Transactions
+Tagged as Investor Information
+Shareholding Pattern
+Investor section not isolated properly
+Major Shareholders
+Shareholder section not routed
+Financial Ratios
+Remained inside MD&A table, not identified
+Subsidiaries
+AOC-1 never surfaced as subsidiary section
+Statement of Changes in Equity
+Balance Sheet reused incorrectly
+
+So I'd say the canonical layer is the primary source of the bad extractions, not the downstream extractor itself. Once governance, shareholder, related-party and annexure sections are fixed, I would expect overall extraction accuracy to jump from roughly 50% to 80%+ even without changing downstream extraction logic.
+This is actually even more revealing than the section inventory.
+The tables are substantially better than the sections, but they still contain structural problems that will absolutely create downstream errors.
+Executive Summary
+Area
+Assessment
+Numeric extraction
+✅ Very good
+Table detection
+✅ Good
+Table classification
+⚠️ Moderate
+Duplicate detection
+❌ Poor
+Table-to-section linking
+❌ Poor
+Financial statement coverage
+⚠️ Incomplete
+
+I'd score the table layer:
+Raw table extraction: ~90%
+Table canonicalization: ~75%
+Table semantics: ~65%
+Downstream usability: ~60-70%
+
+Major Problem #1: Duplicate Tables
+You have:
+TB_D4AB87
+TB_699B4D
+Both page 68. Both 41x3. Both contain identical balance-sheet rows.
+Likewise:
+TB_EC0B84
+TB_CB5409
+Both page 108. Both contain same consolidated balance sheet.
+Likewise:
+TB_7B770F
+TB_26F31E
+Both page 110. Same cash-flow table.
+This means the canonicalizer is creating multiple IDs for the same physical table.
+That causes:
+1 balance sheet
+↓
+2 canonical tables
+
+1 cash flow
+↓
+2 canonical tables
+Downstream effects:
+duplicate extractions
+conflicting matches
+wrong table selection
+confidence inflation
+
+Major Problem #2: Missing Table Typing
+Notice:
+TB_D4AB87
+contains:
+Property plant equipment
+Investments
+Other non-current assets
+Equity
+Liabilities
+This is clearly:
+Standalone Balance Sheet
+But I don't see a table-level identity like:
+{
+"table_type": "BALANCE_SHEET",
+"statement": "STANDALONE"
+}
+Instead only row labels exist.
+That forces downstream logic to guess.
+
+Major Problem #3: Statement of Changes in Equity Not Linked
+You actually extracted:
+TB_2611A0
+Page 111
+which is:
+Balance as at 1 April 2023
+Changes in share capital
+Balance as at 31 March 2025
+Other Equity
+Actuarial Gain
+This is clearly:
+Statement of Changes in Equity
+and it's a legitimate table. [Landsmill...en Limited | PDF]
+But downstream extraction mapped:
+Statement of Changes in Equity
+↓
+TB_D4AB87 balance sheet
+instead. [Landsmill...action (4) | Excel]
+That's a routing failure.
+The correct table existed.
+It wasn't used.
+
+Major Problem #4: Missing Important Tables
+From the PDF we know there are tables for:
+Financial Ratios
+Debtors Turnover
+Inventory Turnover
+Current Ratio
+Debt Equity Ratio
+Net Profit Margin
+Page 25. [Landsmill...en Limited | PDF]
+I don't see a canonical table for this.
+
+Shareholding Pattern
+Page 50. [Landsmill...en Limited | PDF]
+Contains:
+Promoter Group
+Public
+Institutional
+NRI
+Bodies Corporate
+Not extracted.
+
+Distribution of Shareholding
+Page 50. [Landsmill...en Limited | PDF]
+Not extracted.
+
+Board Composition
+Pages 30-32. [Landsmill...en Limited | PDF]
+Large structured table.
+Not extracted.
+
+Committee Composition
+Pages 38-44. [Landsmill...en Limited | PDF]
+Audit Committee NRC Stakeholder Committee
+Not extracted.
+
+Market Price Table
+Page 49. [Landsmill...en Limited | PDF]
+Monthly stock prices.
+Not extracted.
+
+This explains why governance and investor-related fields failed.
+The tables literally never entered the canonical layer.
+
+Major Problem #5: Standalone vs Consolidated Ambiguity
+You have:
+Page 68
+TB_D4AB87
+Standalone Balance Sheet.
+
+Page 108
+TB_EC0B84
+Consolidated Balance Sheet.
+
+The numbers are extremely similar.
+Example:
+Standalone Investments: 2235
+Consolidated Investments: 10
+Everything else looks nearly identical.
+If downstream matching uses:
+search balance sheet
+instead of
+search balance sheet
+AND statement=standalone
+you can easily grab the wrong table.
+This probably explains some inconsistent values I saw in the extraction.
+
+The Good News
+The actual extracted numbers appear highly accurate.
+Example:
+Standalone P&L
+TB_DA9A52
+Revenue 136268.94
+Other Income 57046.80
+PAT 12938.22
+Matches source PDF. [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+
+Consolidated P&L
+TB_86A6AC
+Revenue 136268.94
+Total Income 188429.41
+Matches report. [Landsmill...en Limited | PDF]
+
+Consolidated Cash Flow
+TB_7B770F
+Values align with source. [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+
+Why Downstream Broke Despite Good Tables
+I think your stack currently behaves roughly like:
+Canonical Sections
++
+Canonical Tables
+↓
+Retriever
+↓
+Field Extractor
+The table layer is mostly correct.
+The section layer is not.
+Example:
+Ask: Board Committees
+Retriever searches section inventory:
+Board Committees
+No proper governance section found.
+Then fallback happens.
+Nearest financial table selected.
+Result:
+Board Committees
+=
+Profit & Loss Statement
+Which is exactly what we saw in the XLSX. [Landsmill...action (4) | Excel]
+
+My Biggest Findings
+Critical Severity
+Duplicate table generation
+TB_D4AB87 == TB_699B4D
+
+TB_EC0B84 == TB_CB5409
+
+TB_7B770F == TB_26F31E
+Must be fixed.
+
+Missing governance tables
+Board Committees Directorships
+Missing entirely.
+
+Missing shareholder tables
+Shareholding Pattern Distribution Promoter Holdings
+Missing entirely.
+
+Missing financial-ratio tables
+Ratios exist in PDF but not in canonical tables.
+
+Missing table identities
+Each table should have:
+{
+"statement_type":
+"BALANCE_SHEET"
+"PNL"
+"CASH_FLOW"
+"SOCIE"
+"RATIO"
+"SHAREHOLDING",
+
+"scope":
+"STANDALONE"
+"CONSOLIDATED"
+}
+Without this, downstream retrieval is guessing.
+
+Final Verdict
+If I had to identify the single biggest root cause of downstream errors:
+35% = bad section segmentation
+30% = missing governance/shareholder tables
+20% = missing semantic table typing
+10% = duplicate table creation
+5% = extraction errors
+So the raw OCR/table extraction is actually quite strong. The real issue is that the canonical layer is losing document structure and business semantics before the extractor ever sees the data. That's why financial statements look accurate while governance, shareholding, related party, subsidiaries, committees, and ratios collapse into nonsense. [Landsmill...action (4) | Excel], [Landsmill...en Limited | PDF]
+
+

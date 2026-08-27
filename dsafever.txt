@@ -1,0 +1,1348 @@
+﻿Yes. I can do this in two steps:
+Step 1: Verification of the uploaded JSON against the raw PDF values you pasted
+From the portion of custom_extraction_result.json I reviewed, there are significant mismatches with the raw financial statements you provided.
+Consolidated Balance Sheet Issues
+Item
+	Raw PDF
+	JSON
+	Status
+	Investments
+	10.00
+	2235.00
+	❌ Wrong
+	Total Non Current Assets
+	807,797.98
+	810,022.98
+	❌ Wrong
+	Cash & Cash Equivalents
+	15,173.87
+	4,217.79
+	❌ Wrong
+	Loans & Advances
+	868,523.56
+	880,347.83
+	❌ Wrong
+	Total Current Assets
+	969,083.74
+	969,951.93
+	❌ Wrong
+	Total Assets
+	1,776,881.72
+	1,779,974.91
+	❌ Wrong
+	Other Equity
+	321,760.84
+	324,891.26
+	❌ Wrong
+	Total Equity
+	1,732,455.90
+	1,735,586.32
+	❌ Wrong
+	Trade Payables
+	12,185.62
+	0.00
+	❌ Missing
+	Total Current Liabilities
+	31,477.75
+	31,440.52
+	❌ Wrong
+	Consolidated P&L Issues
+Item
+	Raw PDF
+	JSON
+	Status
+	Other Income
+	52,160.46
+	57,046.80
+	❌ Wrong
+	Total Income
+	188,429.41
+	193,315.75
+	❌ Wrong
+	Employee Benefit Expense
+	4,984.81
+	4,515.81
+	❌ Wrong
+	Other Expenses
+	40,155.70
+	39,486.44
+	❌ Wrong
+	Total Expenses
+	181,407.70
+	180,269.44
+	❌ Wrong
+	PBT
+	7,021.71
+	13,046.30
+	❌ Wrong
+	Profit for Period
+	6,913.63
+	12,938.22
+	❌ Wrong
+	OCI Reclassified Items
+	6,327.81
+	0.00
+	❌ Missing
+	Total Comprehensive Income
+	13,325.32
+	13,022.10
+	❌ Wrong
+	Critical Observation
+The JSON's "consolidated" statements appear to be contaminated with standalone values and note values.
+For example:
+* Your pasted consolidated PDF:
+   * Profit after tax = 6,913.63
+* JSON:
+   * Profit after tax = 12,938.22
+Those are completely different statements.
+Also, JSON extracted:
+"investments": 2235.0
+while the actual consolidated balance sheet shows:
+Investments 10.00
+This alone indicates the extraction is not reliable for validation.
+________________
+
+
+Initial Verdict
+For the Balance Sheet, P&L, and cash position that you pasted:
+The JSON does NOT accurately represent the consolidated financial statements.
+I would currently rate:
+* Structure extraction: ✅ Good
+* Statement identification: ⚠️ Partially correct
+* Numerical accuracy: ❌ Poor
+* Production-ready: ❌ No
+________________
+
+
+Step 2
+Send me the values you want to verify next.
+I'll check each one against:
+1. Your raw PDF values.
+2. Internal statement totals (cross-footing).
+3. Accounting consistency (Assets = Equity + Liabilities, cash flow reconciliation, etc.).
+Just paste the values, and I'll mark each as ✅ Correct or ❌ Incorrect with the exact expected value.
+
+
+
+Honestly? As a demo of reconstruction and provenance, it's decent. As a financial statement extraction system, it's not reliable enough yet.
+Based on the raw PDF you pasted versus the dashboard output:
+Overall Score
+Area
+	Score
+	Statement identification
+	8/10
+	Page routing
+	8/10
+	Table reconstruction
+	7/10
+	Numerical accuracy
+	3/10
+	Consolidated vs Standalone separation
+	2/10
+	Cash flow extraction
+	1/10
+	Production readiness
+	3/10
+	Overall: ~4/10
+________________
+
+
+What It Does Well
+1. Correct statement discovery
+It successfully found:
+* Standalone BS
+* Consolidated BS
+* Standalone P&L
+* Consolidated P&L
+* Standalone CF
+* Consolidated CF
+So the document navigation layer is working.
+________________
+
+
+2. Provenance is good
+The system shows:
+Table TB_FFFF1C Page 69
+Table TB_2FDE08 Page 108
+Table TB_8705C1 Page 109
+
+
+This is exactly what you want in an enterprise extraction system.
+Good traceability.
+________________
+
+
+3. Structure reconstruction is good
+It correctly reconstructs:
+Assets
+  Non-current assets
+  Current assets
+
+
+Equity
+Liabilities
+
+
+and
+Revenue
+Expenses
+Profit
+OCI
+EPS
+
+
+So hierarchy preservation is largely working.
+________________
+
+
+Major Problems
+Problem 1: The numbers are wrong
+Example:
+Raw Consolidated BS
+Investments = 10.00
+
+
+Dashboard
+Investments = 2235.00
+
+
+This is not a rounding error.
+This is data sourced from somewhere else.
+________________
+
+
+Problem 2: Totals don't match source
+Raw:
+Total Assets
+1,776,881.72
+
+
+Dashboard:
+1,779,974.91
+
+
+Difference:
+3,093.19
+
+
+A financial extractor must never do this.
+________________
+
+
+Problem 3: Consolidated and Standalone are nearly identical
+Your dashboard shows:
+Standalone BS = Consolidated BS
+Standalone P&L = Consolidated P&L
+
+
+almost row-for-row.
+That is extremely suspicious.
+Real consolidated statements usually differ from standalone statements unless the subsidiary is immaterial.
+In this annual report:
+* Subsidiary exists (Excel Info FZE)
+* Consolidated profit is different from standalone profit
+* Consolidated income is different from standalone income
+The PDF itself confirms that. [Landsmill...en Limited | PDF]
+Yet your extraction made them identical.
+That is a strong sign of candidate contamination.
+________________
+
+
+Problem 4: Cash Flow extraction is completely broken
+Look at dashboard:
+Standalone Cash Flow Statement
+
+
+Non Current Assets
+Property Plant & Equipment
+Investment Property
+Loans & Advances
+...
+
+
+That's not a cash flow statement.
+That's literally a balance sheet.
+A cash flow statement should start:
+Net profit before tax
+Adjustments
+Operating activities
+Investing activities
+Financing activities
+
+
+Your raw PDF shows exactly that. The dashboard does not. This is a serious routing failure.
+________________
+
+
+Problem 5: Candidate selection appears wrong
+The provenance says:
+Consolidated Balance Sheet
+Page 108
+TB_2FDE08
+
+
+But the extracted values are clearly coming from another table.
+This suggests:
+1. Correct table identified
+2. Wrong grid attached
+3. Or embedding retrieval pulled another candidate
+4. Or canonical reconstruction merged tables
+________________
+
+
+What I Think Happened
+Looking at the errors pattern:
+Investments      2235
+Cash             4217
+Loans            880347
+
+
+These don't look OCR errors.
+They look like values coming from notes schedules rather than the face financial statements.
+For example:
+Note 4 Investments
+Note 8 Loans
+
+
+got substituted into
+Balance Sheet line items
+
+
+This is a common failure when canonical JSON contains multiple table candidates and the mapping layer chooses the wrong one.
+________________
+
+
+Biggest Red Flag
+Your dashboard says:
+Consolidated Cash Flow Statement
+
+
+and then displays:
+Property plant equipment
+Investment property
+Equity share capital
+Borrowings
+
+
+If I saw this in a validation review, I'd immediately conclude:
+The extraction engine is reusing a balance-sheet candidate table for the cash-flow field.
+That alone means field-level validation is not working.
+________________
+
+
+If I were reviewing this system
+I'd classify it as:
+✅ Good
+* Document parsing
+* Section detection
+* Provenance capture
+* UI presentation
+* Candidate retrieval
+⚠ Needs Work
+* Canonical → extraction mapping
+* Table ranking
+* Consolidated/standalone discrimination
+❌ Failing
+* Numeric validation
+* Statement-type validation
+* Cross-table consistency checks
+________________
+
+
+My confidence assessment
+If a human analyst manually reviewed outputs:
+70-80% usable
+If numbers flowed automatically into downstream models:
+20-30% trustworthy
+For this particular document, the dashboard would fail validation because:
+1. Cash Flow statement is wrong.
+2. Consolidated P&L numbers are wrong.
+3. Consolidated BS numbers are wrong.
+4. Several totals don't agree with the source PDF.
+So the canonical document generation may be fine, but the canonical → extraction layer is clearly selecting the wrong data in multiple places. That's where I'd focus debugging first.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Also looking at the canonical, did it already miss anything in the canonical itself in terms of value extraction from tables, or does it seem to have less rows coz we are trimming…
+Canonical Document Inspector
+Document ID: Landsmill Green Limited
+163
+Total Pages
+37
+Detected Sections
+41
+Extracted Canonical Tables
+Document Sections (37)Canonical Tables (24)
+Table #TB_5477A6Pages: 3 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_FEC38BPages: 59 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_65D8B8Pages: 61 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_0BF894Pages: 68 | Grid: 41 x 3
+
+
+	
+
+	
+
+	Non - Current Assets
+	ASSETS
+	{'current_period': None, 'previous_period': None}
+	Property, plant and Equipment
+	ASSETS > Non-Current Assets
+	{'current_period': 93208.35, 'previous_period': 84372.96}
+	Capital work - in - progress
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Other Intangible Assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Intangible assets under development
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investment in property
+	ASSETS > Non-Current Assets
+	{'current_period': 518217.91, 'previous_period': 518642.91}
+	Financial assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investments
+	ASSETS > Non-Current Assets
+	{'current_period': 2235.0, 'previous_period': 2179.0}
+	Other non - current assets
+	ASSETS > Non-Current Assets
+	{'current_period': 196361.72, 'previous_period': 207061.74}
+	Table #TB_FFFF1CPages: 69 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_B07748Pages: 70 | Grid: 41 x 3
+
+
+	
+
+	
+
+	Non - Current Assets
+	ASSETS
+	{'current_period': None, 'previous_period': None}
+	Property, plant and Equipment
+	ASSETS > Non-Current Assets
+	{'current_period': 93208.35, 'previous_period': 84372.96}
+	Capital work - in - progress
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Other Intangible Assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Intangible assets under development
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investment in property
+	ASSETS > Non-Current Assets
+	{'current_period': 518217.91, 'previous_period': 518642.91}
+	Financial assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investments
+	ASSETS > Non-Current Assets
+	{'current_period': 2235.0, 'previous_period': 2179.0}
+	Other non - current assets
+	ASSETS > Non-Current Assets
+	{'current_period': 196361.72, 'previous_period': 207061.74}
+	Table #TB_196392Pages: 70 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Net Profit / (Loss) before extraordinary items and tax
+	A. Cash flow from operating activities
+	{'current_period': 7021.71, 'previous_period': 11505.54}
+	Adjustments for:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Depreciation and amortisation
+	A. Cash flow from operating activities
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Finance costs
+	A. Cash flow from operating activities
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Interest income
+	A. Cash flow from operating activities
+	{'current_period': -50615.92, 'previous_period': -32852.18}
+	Operating profit / (loss)
+	A. Cash flow from operating activities
+	{'current_period': -41192.06, 'previous_period': -19505.96}
+	Adjustments for (increase) / decrease in operating assets:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Trade receivables
+	A. Cash flow from operating activities
+	{'current_period': 16911.68, 'previous_period': -30031.59}
+	Trade payables
+	A. Cash flow from operating activities
+	{'current_period': -9267.14, 'previous_period': 2580.22}
+	Table #TB_94BCBDPages: 73 | Grid: 41 x 3
+
+
+	
+
+	
+
+	Non - Current Assets
+	ASSETS
+	{'current_period': None, 'previous_period': None}
+	Property, plant and Equipment
+	ASSETS > Non-Current Assets
+	{'current_period': 93208.35, 'previous_period': 84372.96}
+	Capital work - in - progress
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Other Intangible Assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Intangible assets under development
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investment in property
+	ASSETS > Non-Current Assets
+	{'current_period': 518217.91, 'previous_period': 518642.91}
+	Financial assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investments
+	ASSETS > Non-Current Assets
+	{'current_period': 2235.0, 'previous_period': 2179.0}
+	Other non - current assets
+	ASSETS > Non-Current Assets
+	{'current_period': 196361.72, 'previous_period': 207061.74}
+	Table #TB_812530Pages: 81 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Net Profit / (Loss) before extraordinary items and tax
+	A. Cash flow from operating activities
+	{'current_period': 7021.71, 'previous_period': 11505.54}
+	Adjustments for:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Depreciation and amortisation
+	A. Cash flow from operating activities
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Finance costs
+	A. Cash flow from operating activities
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Interest income
+	A. Cash flow from operating activities
+	{'current_period': -50615.92, 'previous_period': -32852.18}
+	Operating profit / (loss)
+	A. Cash flow from operating activities
+	{'current_period': -41192.06, 'previous_period': -19505.96}
+	Adjustments for (increase) / decrease in operating assets:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Trade receivables
+	A. Cash flow from operating activities
+	{'current_period': 16911.68, 'previous_period': -30031.59}
+	Trade payables
+	A. Cash flow from operating activities
+	{'current_period': -9267.14, 'previous_period': 2580.22}
+	Table #TB_DB0FE6Pages: 95 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_C8FFCDPages: 98 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_D6B455Pages: 99 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Net Profit / (Loss) before extraordinary items and tax
+	A. Cash flow from operating activities
+	{'current_period': 7021.71, 'previous_period': 11505.54}
+	Adjustments for:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Depreciation and amortisation
+	A. Cash flow from operating activities
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Finance costs
+	A. Cash flow from operating activities
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Interest income
+	A. Cash flow from operating activities
+	{'current_period': -50615.92, 'previous_period': -32852.18}
+	Operating profit / (loss)
+	A. Cash flow from operating activities
+	{'current_period': -41192.06, 'previous_period': -19505.96}
+	Adjustments for (increase) / decrease in operating assets:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Trade receivables
+	A. Cash flow from operating activities
+	{'current_period': 16911.68, 'previous_period': -30031.59}
+	Trade payables
+	A. Cash flow from operating activities
+	{'current_period': -9267.14, 'previous_period': 2580.22}
+	Table #TB_869851Pages: 102 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_81B2B9Pages: 105 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_2FDE08Pages: 108 | Grid: 41 x 3
+
+
+	
+
+	
+
+	Non - Current Assets
+	ASSETS
+	{'current_period': None, 'previous_period': None}
+	Property, plant and Equipment
+	ASSETS > Non-Current Assets
+	{'current_period': 93208.35, 'previous_period': 84372.96}
+	Capital work - in - progress
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Other Intangible Assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Intangible assets under development
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investment in property
+	ASSETS > Non-Current Assets
+	{'current_period': 518217.91, 'previous_period': 518642.91}
+	Financial assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investments
+	ASSETS > Non-Current Assets
+	{'current_period': 2235.0, 'previous_period': 2179.0}
+	Other non - current assets
+	ASSETS > Non-Current Assets
+	{'current_period': 196361.72, 'previous_period': 207061.74}
+	Table #TB_8705C1Pages: 109 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_FF7D3APages: 110 | Grid: 41 x 3
+
+
+	
+
+	
+
+	Non - Current Assets
+	ASSETS
+	{'current_period': None, 'previous_period': None}
+	Property, plant and Equipment
+	ASSETS > Non-Current Assets
+	{'current_period': 93208.35, 'previous_period': 84372.96}
+	Capital work - in - progress
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Other Intangible Assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Intangible assets under development
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investment in property
+	ASSETS > Non-Current Assets
+	{'current_period': 518217.91, 'previous_period': 518642.91}
+	Financial assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investments
+	ASSETS > Non-Current Assets
+	{'current_period': 2235.0, 'previous_period': 2179.0}
+	Other non - current assets
+	ASSETS > Non-Current Assets
+	{'current_period': 196361.72, 'previous_period': 207061.74}
+	Table #TB_EE3307Pages: 110 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Net Profit / (Loss) before extraordinary items and tax
+	A. Cash flow from operating activities
+	{'current_period': 7021.71, 'previous_period': 11505.54}
+	Adjustments for:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Depreciation and amortisation
+	A. Cash flow from operating activities
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Finance costs
+	A. Cash flow from operating activities
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Interest income
+	A. Cash flow from operating activities
+	{'current_period': -50615.92, 'previous_period': -32852.18}
+	Operating profit / (loss)
+	A. Cash flow from operating activities
+	{'current_period': -41192.06, 'previous_period': -19505.96}
+	Adjustments for (increase) / decrease in operating assets:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Trade receivables
+	A. Cash flow from operating activities
+	{'current_period': 16911.68, 'previous_period': -30031.59}
+	Trade payables
+	A. Cash flow from operating activities
+	{'current_period': -9267.14, 'previous_period': 2580.22}
+	Table #TB_ED5C7APages: 113 | Grid: 41 x 3
+
+
+	
+
+	
+
+	Non - Current Assets
+	ASSETS
+	{'current_period': None, 'previous_period': None}
+	Property, plant and Equipment
+	ASSETS > Non-Current Assets
+	{'current_period': 93208.35, 'previous_period': 84372.96}
+	Capital work - in - progress
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Other Intangible Assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Intangible assets under development
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investment in property
+	ASSETS > Non-Current Assets
+	{'current_period': 518217.91, 'previous_period': 518642.91}
+	Financial assets
+	ASSETS > Non-Current Assets
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Investments
+	ASSETS > Non-Current Assets
+	{'current_period': 2235.0, 'previous_period': 2179.0}
+	Other non - current assets
+	ASSETS > Non-Current Assets
+	{'current_period': 196361.72, 'previous_period': 207061.74}
+	Table #TB_00A0DDPages: 121 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Net Profit / (Loss) before extraordinary items and tax
+	A. Cash flow from operating activities
+	{'current_period': 7021.71, 'previous_period': 11505.54}
+	Adjustments for:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Depreciation and amortisation
+	A. Cash flow from operating activities
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Finance costs
+	A. Cash flow from operating activities
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Interest income
+	A. Cash flow from operating activities
+	{'current_period': -50615.92, 'previous_period': -32852.18}
+	Operating profit / (loss)
+	A. Cash flow from operating activities
+	{'current_period': -41192.06, 'previous_period': -19505.96}
+	Adjustments for (increase) / decrease in operating assets:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Trade receivables
+	A. Cash flow from operating activities
+	{'current_period': 16911.68, 'previous_period': -30031.59}
+	Trade payables
+	A. Cash flow from operating activities
+	{'current_period': -9267.14, 'previous_period': 2580.22}
+	Table #TB_DD84EDPages: 133 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_174247Pages: 136 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_8D758DPages: 138 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Revenue from operations
+	I. Revenue from operations
+	{'current_period': 136268.94, 'previous_period': 25768.26}
+	Other income
+	I. Revenue from operations
+	{'current_period': 57046.8, 'previous_period': 36077.31}
+	Total Income
+	I. Revenue from operations
+	{'current_period': 193315.75, 'previous_period': 61845.57}
+	Expenses
+	IV. Expenses
+	{'current_period': None, 'previous_period': None}
+	Purchases of Traded Goods
+	IV. Expenses
+	{'current_period': 144754.31, 'previous_period': 23639.83}
+	Changes in Inventory
+	IV. Expenses
+	{'current_period': -10889.27, 'previous_period': -948.4}
+	Employee benefit expenses
+	IV. Expenses
+	{'current_period': 4515.81, 'previous_period': 3924.17}
+	Finance Cost
+	IV. Expenses
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Depreciation & amortization expenses
+	IV. Expenses
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Table #TB_6FC660Pages: 139 | Grid: 31 x 3
+
+
+	
+
+	
+
+	Net Profit / (Loss) before extraordinary items and tax
+	A. Cash flow from operating activities
+	{'current_period': 7021.71, 'previous_period': 11505.54}
+	Adjustments for:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Depreciation and amortisation
+	A. Cash flow from operating activities
+	{'current_period': 2258.23, 'previous_period': 1698.04}
+	Finance costs
+	A. Cash flow from operating activities
+	{'current_period': 143.92, 'previous_period': 142.64}
+	Interest income
+	A. Cash flow from operating activities
+	{'current_period': -50615.92, 'previous_period': -32852.18}
+	Operating profit / (loss)
+	A. Cash flow from operating activities
+	{'current_period': -41192.06, 'previous_period': -19505.96}
+	Adjustments for (increase) / decrease in operating assets:
+	A. Cash flow from operating activities
+	{'current_period': 0.0, 'previous_period': 0.0}
+	Trade receivables
+	A. Cash flow from operating activities
+	{'current_period': 16911.68, 'previous_period': -30031.59}
+	Trade payables
+	A. Cash flow from operating activities
+	{'current_period': -9267.14, 'previous_period': 2580.22}
+	
+
+Also looking at this this already identifies 5 out of 6 tables that we need, and it should have found the 6th one too, got to look into this too… also this itself helps alot in finding the final tables, now we need something robust…
+
+Canonical Document Inspector
+Document ID: Landsmill Green Limited
+163
+Total Pages
+37
+Detected Sections
+41
+Extracted Canonical Tables
+Document Sections (37)Canonical Tables (24)
+Section Title
+	Category / Type
+	Page Range
+	Opening Pages
+	other
+	Page 1 - 2
+	CORPORATE INFORMATION BOARD OF DIRECTORS
+	Management & Governance
+	Page 3 - 8
+	18. MANAGEMENT DISCUSSION AND ANALYSIS REPORT
+	Management & Governance
+	Page 9 - 9
+	Internal Financial Controls are an integrated part of the risk management process, addressing financial and financial
+	Risk Management
+	Page 10 - 10
+	of the Notice of the 23rd AGM of the Company.
+	Investor Information
+	Page 11 - 11
+	During the year, the materially significant related party transactions pursuant to the provisions of SEBI Listing Regulations
+	Investor Information
+	Page 12 - 12
+	SEBI, vide its circular dated May 10, 2021, made BRSR mandatory for the top 1,000 listed companies (by market
+	ESG & Sustainability
+	Page 13 - 23
+	Management Discussion & Analysis Report
+	Management Discussion & Analysis
+	Page 24 - 27
+	INTERNAL CONTROL SYSTEMS AND THEIR ADEQUACY
+	Audit Information
+	Page 28 - 28
+	Corporate Governance Report
+	Management & Governance
+	Page 29 - 33
+	A, Laxmi Industrial Estate HDFC Bank Ltd New Link Road, Andheri (West) IndusInd Bank Ltd
+	Unclassified
+	Page 34 - 41
+	2. Developing and managing / executing business plans,operational plans, risk management, and financial affairs
+	Risk Management
+	Page 42 - 46
+	7. GENERAL SHAREHOLDER INFORMATION:
+	Investor Information
+	Page 47 - 54
+	The Company has obtained from all the members of the Board of Directors and Senior Management Personnel, affirmation(s)
+	Management & Governance
+	Page 55 - 58
+	Independent Auditors' Report
+	Financial Statements
+	Page 59 - 59
+	Auditor's Responsibilities for the Audit of the Standalone Financial Statements
+	Audit Information
+	Page 60 - 67
+	Balance Sheet, Statement of Profit and Loss, Cash Flow Statement
+	Financial Statements
+	Page 68 - 68
+	Standalone Statement of Profit and loss for the year ended 31st March, 2025
+	Financial Statements
+	Page 69 - 69
+	Standlone Cash Flow Statement for the year ended 31 March, 2025
+	Financial Statements
+	Page 70 - 70
+	Notes Forming Part of Financial Statements
+	Financial Statements
+	Page 71 - 80
+	29 Financial risk management objectives and policies
+	Risk Management
+	Page 81 - 81
+	credit risk management. Credit risk has always been managed by the Company through credit approvals, estabilishing
+	Risk Management
+	Page 82 - 91
+	Significant Accounting Policies
+	Notes to Accounts
+	Page 92 - 95
+	All equity investments are measured at fair value in the balance sheet, with value changes recognized in
+	Financial Statements
+	Page 96 - 101
+	Consolidated Auditors Report,
+	Audit Information
+	Page 102 - 102
+	state of affairs, consolidated profit / loss and other comprehensive income, consolidated statement of changes in equity
+	Financial Statements
+	Page 103 - 103
+	assumption. If we conclude that a material uncertainty exists, we are required to draw attention in our auditor's report
+	Audit Information
+	Page 104 - 105
+	ANNEXURE A TO THE INDEPENDENT AUDITORS' REPORT ON THE CONSOLIDATED FINANCIAL STATEMENTS
+	Financial Statements
+	Page 106 - 108
+	Consolidated Statement of Profit and loss for the year ended 31st March, 2025
+	Financial Statements
+	Page 109 - 109
+	Cash Flow Statement for the year ended 31 March, 2025
+	Financial Statements
+	Page 110 - 110
+	Notes on Consolidated Financial Statement
+	Financial Statements
+	Page 111 - 120
+	29 Financial risk management objectives and policies
+	Risk Management
+	Page 121 - 121
+	credit risk management. Credit risk has always been managed by the Company through credit approvals, estabilishing
+	Risk Management
+	Page 122 - 131
+	36 SIGNIFICANT ACCOUNTING POLICIES
+	Notes to Accounts
+	Page 132 - 142
+	of 5 (five) years i.e. from the conclusion of this Annual General Meeting till the conclusion of 28th Annual General
+	Management & Governance
+	Page 143 - 153
+	1. Shareholder will be provided with a facility to attend the AGM through VC/OAVM through the CDSL e-
+	Investor Information
+	Page 154 - 156
+	for the term of five consecutive years with effect from the conclusion of this 23rd Annual General Meeting till the
+	Management & Governance
+	Page 157 - 163

@@ -42,12 +42,13 @@ logger = logging.getLogger(__name__)
 # VLM client helpers
 # ===================================================================
 
-def _get_vlm_client(temperature: float = 0.0, max_tokens: int = 4096,
+def _get_vlm_client(temperature: float = 0.0, max_tokens: int = 8192,
                      request_timeout: int = 300):
     """Get a LangChain ChatOpenAI instance configured for the VLM.
 
-    Reuses the on-prem LLM config from ``llm_config`` but with higher
-    ``max_tokens`` and longer timeout for vision tasks.
+    The direct HTTP adapter in ``llm_config`` handles the multimodal endpoint
+    and batch-compatible route, while LangChain remains available for other
+    text-based LLM workflows.
     """
     from .llm_config import get_llm
     return get_llm(temperature=temperature, max_tokens=max_tokens,
@@ -65,7 +66,7 @@ def _call_vlm_with_images(
     images: list[bytes],
     system_prompt: str | None = None,
     json_schema: dict | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int = 8192,
     temperature: float = 0.0,
     request_timeout: int = 300,
 ) -> str | None:
@@ -90,24 +91,15 @@ def _call_vlm_with_images(
         The VLM response text, or None on failure.
     """
     try:
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from .llm_config import invoke_vlm_chat_completion
 
-        llm = _get_vlm_client(temperature=temperature, max_tokens=max_tokens,
-                               request_timeout=request_timeout)
-                               
-        if json_schema and hasattr(llm, "with_structured_output"):
-            # If supported (like Groq/OpenAI), we can enforce the schema
-            pass # We'll just rely on system prompt instructions for now to keep it cross-compatible
-
-        messages = []
+        messages: list[dict[str, Any]] = []
         if system_prompt:
-            messages.append(SystemMessage(content=system_prompt))
+            messages.append({"role": "system", "content": system_prompt})
 
-        # Build the message content with text + images
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
 
         for img_bytes in images:
-            # Detect format from magic bytes
             if img_bytes[:2] == b'\xff\xd8':
                 content_type = "image/jpeg"
             else:
@@ -118,9 +110,14 @@ def _call_vlm_with_images(
                 "image_url": {"url": data_uri},
             })
 
-        messages.append(HumanMessage(content=content))
-        response = llm.invoke(messages)
-        return response.content
+        messages.append({"role": "user", "content": content})
+        return invoke_vlm_chat_completion(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            request_timeout=request_timeout,
+            use_batch=True,
+        )
 
     except Exception as exc:
         logger.error(f"VLM call failed: {exc}")
@@ -188,6 +185,12 @@ def _extract_json_from_response(text: str) -> dict | list | None:
                     except json.JSONDecodeError:
                         pass
 
+    # Try repairing truncated JSON cut off at max_tokens limit
+    repaired_truncated = _repair_truncated_json(text)
+    if repaired_truncated is not None:
+        logger.info("Successfully recovered truncated VLM JSON response!")
+        return repaired_truncated
+
     logger.warning("Could not extract JSON from VLM response")
     return None
 
@@ -198,6 +201,48 @@ def _repair_trailing_commas(text: str) -> str | None:
         return re.sub(r",\s*([}\]])", r"\1", text)
     except Exception:
         return None
+
+
+def _repair_truncated_json(text: str) -> dict | list | None:
+    """Repair JSON strings truncated mid-stream by token limit cutoff."""
+    if not text:
+        return None
+
+    clean_text = text.strip()
+    if "```json" in clean_text:
+        clean_text = clean_text.split("```json")[-1]
+    if "```" in clean_text:
+        clean_text = clean_text.split("```")[0]
+
+    clean_text = clean_text.strip()
+    start_pos = clean_text.find("{")
+    if start_pos == -1:
+        start_pos = clean_text.find("[")
+    if start_pos == -1:
+        return None
+
+    clean_text = clean_text[start_pos:]
+
+    # Truncate at last complete closing brace '}'
+    last_brace = clean_text.rfind("}")
+    if last_brace != -1:
+        truncated_part = clean_text[:last_brace + 1]
+
+        open_braces = truncated_part.count("{") - truncated_part.count("}")
+        open_brackets = truncated_part.count("[") - truncated_part.count("]")
+
+        repaired = truncated_part + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            repaired_commas = _repair_trailing_commas(repaired)
+            if repaired_commas:
+                try:
+                    return json.loads(repaired_commas)
+                except json.JSONDecodeError:
+                    pass
+
+    return None
 
 
 # ===================================================================
@@ -1145,8 +1190,6 @@ def vlm_extract_all(
         "consolidated": {},
     }
 
-    mock_mode_done = False
-
     for entity in ("standalone", "consolidated"):
         entity_pages = pages_map[entity]
         if not entity_pages:
@@ -1155,16 +1198,9 @@ def vlm_extract_all(
         _log(f"[VLM] Processing {entity} statements...")
 
         for stmt_key in _STMT_KEYS:
-            # ── MOCK MODE (TEMPORARY) ──
-            if mock_mode_done:
-                continue
-
             page_nums = entity_pages.get(stmt_key, [])
             if not page_nums:
                 continue
-
-            mock_mode_done = True
-            _log(f"[VLM] MOCK MODE: Processing ONLY {entity}_{stmt_key} to avoid rate limits.")
 
             _log(f"[VLM]   Rendering {stmt_key} pages {page_nums}...")
             try:

@@ -1,4 +1,4 @@
-"""Extraction Pipeline Orchestrator — chains all 9 layers together.
+"""Extraction Pipeline Orchestrator -- chains all 9 layers together.
 
 This is the main entry point for the enterprise-grade Annual Report
 Extraction Framework. It orchestrates:
@@ -14,9 +14,9 @@ Extraction Framework. It orchestrates:
 
 Flow::
 
-    PDF → Ingestion → Master Data → Taxonomy → Table Detection
-         → Text Extraction (default) → VLM Extraction (fallback)
-         → Financial Statement Engine → Validation → Output
+    PDF -> Ingestion -> Master Data -> Taxonomy -> Table Detection
+         -> Text Extraction (default) -> VLM Extraction (fallback)
+         -> Financial Statement Engine -> Validation -> Output
 
 Usage::
 
@@ -228,13 +228,6 @@ def run_full_extraction(
         progress_callback=progress_callback,
     )
     
-    # ── MOCK MODE (TEMPORARY) ──
-    # Limit to 1 table (prefer balance sheet) to avoid Groq free tier rate limits
-    if vlm_targets:
-        demo_target = next((t for t in vlm_targets if "balance_sheet" in t.get("target_id", "").lower()), vlm_targets[0])
-        _log(f"[Pipeline] MOCK MODE: Filtering {len(vlm_targets)} targets down to 1 ({demo_target.get('target_id', 'unknown')}) to avoid rate limits.")
-        vlm_targets = [demo_target]
-        
     vlm_summary = vlm_target_summary(vlm_targets)
     _log(f"[Pipeline]    {vlm_summary['total_targets']} VLM targets: "
          f"{vlm_summary['by_priority']['high']} HIGH, "
@@ -285,31 +278,188 @@ def run_full_extraction(
     # ==================================================================
     _log("[Pipeline] -- Layer 6.5: Subcategory Content Extraction Engine --")
     
-    from .content_extractor import extract_subcategory_content
+    from .content_extractor import extract_subcategory_content, EvidenceBackedResult, extract_governance_multi
     from .llm_config import get_llm
+    from .source_routing import select_best_source, get_all_field_names
+    from .workbook_population import WORKBOOK_TARGETS, MAPPING_RULES
     
     structured_intelligence = {}
+    evidence_map: dict[str, dict] = {}   # subcat → evidence metadata
     
     llm = None
     try:
         llm = get_llm()
     except Exception as exc:
         logger.warning(f"Failed to initialize LLM for structured extraction: {exc}")
-        
+    
+    # Helper: unwrap EvidenceBackedResult and populate evidence_map
+    def _store_result(save_cat: str, subcat: str, result):
+        """Store extraction result, unwrapping EvidenceBackedResult if present."""
+        if isinstance(result, EvidenceBackedResult):
+            structured_intelligence[save_cat][subcat] = result.value
+            evidence_map[subcat] = {
+                "extraction_method": result.evidence.extraction_method,
+                "source_text_snippet": result.evidence.source_text_snippet,
+                "source_page": result.evidence.source_page,
+                "confidence": result.evidence.confidence,
+                "source_section": result.evidence.source_section,
+            }
+        else:
+            # Backward compat: raw value (shouldn't happen with new code)
+            structured_intelligence[save_cat][subcat] = result
+    
+    # Phase 1: Priority-driven extraction for known target fields.
+    # For each Intelligence Report field, select the best source section
+    # using FIELD_SOURCE_PRIORITY (e.g., Dividend from Directors Report,
+    # not AGM Notice).  This prevents wrong-source extraction errors.
+    priority_fields = {subcat: cat for cat, subcat in WORKBOOK_TARGETS}
+    priority_extracted_targets: set[str] = set()   # target field names (e.g. "Board of Directors")
+    priority_extracted_sources: set[str] = set()   # source section names (e.g. "Directors Report")
+
+    # Helper: map a taxonomy subcategory name to a WORKBOOK_TARGETS field name
+    def _resolve_target_field(sub_name: str) -> str | None:
+        """Map a taxonomy subcategory name to a WORKBOOK_TARGETS field name using MAPPING_RULES."""
+        sub_lower = sub_name.lower()
+        for target_name, aliases in MAPPING_RULES.items():
+            for alias in aliases:
+                if alias in sub_lower or sub_lower in alias:
+                    return target_name
+        return None
+    
+    # FIX 4: Governance fields that benefit from multi-extract
+    _GOVERNANCE_FIELDS = {"Board of Directors", "Key Management Personnel", "Board Committees", "Corporate Governance"}
+    
+    # Track which governance sources have already been multi-extracted
+    _governance_multi_done: set[str] = set()   # source section names already processed
+
+    for subcat, cat in priority_fields.items():
+        best_source = select_best_source(subcat, text_extractions)
+        if best_source:
+            src_cat = best_source.get("category", "")
+            src_sub = best_source.get("subcategory", "")
+            text_content = best_source.get("extracted_text", "")
+            src_page = best_source.get("start_page")
+            
+            # Removed financial sections skip filter (Gap 7)
+            
+            # FIX 4: If this is a governance field and the source is a governance section,
+            # use multi-extract to get Board + KMP + Committees + Corp Gov all at once.
+            src_lower = src_sub.lower()
+            is_governance_source = (
+                "corporate governance" in src_lower
+                or "governance report" in src_lower
+                or src_cat == "Management & Governance"
+            )
+            
+            if subcat in _GOVERNANCE_FIELDS and is_governance_source and src_sub not in _governance_multi_done:
+                _governance_multi_done.add(src_sub)
+                gov_results = extract_governance_multi(
+                    text_content, llm,
+                    source_page=src_page, source_section=src_sub,
+                )
+                for gov_field, gov_result in gov_results.items():
+                    gov_cat = priority_fields.get(gov_field, "Management & Governance")
+                    save_cat = gov_cat if gov_cat and gov_cat != "Unclassified" else "Extracted Intelligence"
+                    if save_cat not in structured_intelligence:
+                        structured_intelligence[save_cat] = {}
+                    _store_result(save_cat, gov_field, gov_result)
+                    priority_extracted_targets.add(gov_field)
+                    logger.info("[Priority] Extracted target=%s source=%s (via governance multi)", gov_field, src_sub)
+                    _log(f"[Pipeline]    Governance multi: '{gov_field}' ← source '{src_sub}'")
+                priority_extracted_sources.add(src_sub)
+                continue
+            
+            # Skip if already extracted via governance multi
+            if subcat in priority_extracted_targets:
+                continue
+            
+            extracted = extract_subcategory_content(
+                src_cat, src_sub, text_content, llm,
+                source_page=src_page, source_section=src_sub,
+            )
+            if extracted:
+                save_cat = cat if cat and cat != "Unclassified" else "Extracted Intelligence"
+                if save_cat not in structured_intelligence:
+                    structured_intelligence[save_cat] = {}
+                _store_result(save_cat, subcat, extracted)
+                priority_extracted_targets.add(subcat)   # FIX 2: track target name
+                priority_extracted_sources.add(src_sub)   # FIX 2: track source name
+                logger.info("[Priority] Extracted target=%s source=%s", subcat, src_sub)
+                _log(f"[Pipeline]    Priority match: '{subcat}' ← source '{src_sub}'")
+    
+    _log(f"[Pipeline]    {len(priority_extracted_targets)} fields extracted via source priority")
+    
+    # Phase 2: Fallback — extract remaining sections not covered by priority routing.
+    # This catches Unclassified sections and any fields not in WORKBOOK_TARGETS.
+    # FIX 2: Skip sections whose source OR target was already processed in Phase 1.
+    # FIX 3: Store results under WORKBOOK_TARGETS field names, not taxonomy names.
+    # FIX 4: Use governance multi-extract for Corporate Governance sections.
     for extraction in text_extractions:
         category = extraction.get("category", "")
         subcategory = extraction.get("subcategory", "")
         text_content = extraction.get("extracted_text", "")
+        src_page = extraction.get("start_page")
+        
+        # Skip sections already extracted in Phase 1 (by source name or target name)
+        if subcategory in priority_extracted_sources or subcategory in priority_extracted_targets:
+            logger.info("[Priority] Skipping already processed target=%s", subcategory)
+            continue
         
         # Process all non-financial categories so we can catch Unclassified aliases
         if "financial" not in category.lower() and "notes to accounts" not in category.lower():
-            extracted_json = extract_subcategory_content(category, subcategory, text_content, llm)
-            if extracted_json:
-                # Use "Extracted Intelligence" as a generic bucket if category is Unclassified
-                save_cat = category if category and category != "Unclassified" else "Extracted Intelligence"
-                if save_cat not in structured_intelligence:
-                    structured_intelligence[save_cat] = {}
-                structured_intelligence[save_cat][subcategory] = extracted_json
+            # FIX 4: Governance multi-extract for Corporate Governance sections in Phase 2
+            sub_lower = subcategory.lower()
+            is_gov_section = (
+                "corporate governance" in sub_lower
+                or "governance report" in sub_lower
+                or category == "Management & Governance"
+            )
+            if is_gov_section and subcategory not in _governance_multi_done:
+                _governance_multi_done.add(subcategory)
+                gov_results = extract_governance_multi(
+                    text_content, llm,
+                    source_page=src_page, source_section=subcategory,
+                )
+                for gov_field, gov_result in gov_results.items():
+                    if gov_field in priority_extracted_targets:
+                        continue   # Already extracted in Phase 1
+                    gov_cat = priority_fields.get(gov_field, "Management & Governance")
+                    save_cat = gov_cat if gov_cat and gov_cat != "Unclassified" else "Extracted Intelligence"
+                    if save_cat not in structured_intelligence:
+                        structured_intelligence[save_cat] = {}
+                    _store_result(save_cat, gov_field, gov_result)
+                    priority_extracted_targets.add(gov_field)
+                    logger.info("[Storage] category=%s target=%s (via governance multi Phase 2)", save_cat, gov_field)
+                continue
+            
+            extracted = extract_subcategory_content(
+                category, subcategory, text_content, llm,
+                source_page=src_page, source_section=subcategory,
+            )
+            if extracted:
+                # FIX 3: Resolve taxonomy subcategory → WORKBOOK_TARGETS field name
+                target_field = _resolve_target_field(subcategory)
+                
+                if target_field:
+                    # Skip if this target was already successfully extracted in Phase 1
+                    if target_field in priority_extracted_targets:
+                        logger.info("[Priority] Skipping already processed target=%s", target_field)
+                        continue
+                    
+                    # Store under the WORKBOOK_TARGETS category and field name
+                    target_cat = priority_fields.get(target_field, category)
+                    save_cat = target_cat if target_cat and target_cat != "Unclassified" else "Extracted Intelligence"
+                    if save_cat not in structured_intelligence:
+                        structured_intelligence[save_cat] = {}
+                    _store_result(save_cat, target_field, extracted)
+                    logger.info("[Storage] category=%s target=%s (from subcategory=%s)", save_cat, target_field, subcategory)
+                else:
+                    # No mapping found — store under taxonomy name as before
+                    save_cat = category if category and category != "Unclassified" else "Extracted Intelligence"
+                    if save_cat not in structured_intelligence:
+                        structured_intelligence[save_cat] = {}
+                    _store_result(save_cat, subcategory, extracted)
+                    logger.info("[Storage] category=%s target=%s (unmapped)", save_cat, subcategory)
 
     _log(f"[Pipeline]    Structured Intelligence populated for {len(structured_intelligence)} categories")
 
@@ -377,7 +527,7 @@ def run_full_extraction(
             if target["section_name"] in LEGACY_STATEMENTS:
                 continue
 
-            # Skip financial_statement category — already handled by vlm_extract_all
+            # Skip financial_statement category -- already handled by vlm_extract_all
             if target["table_category"] == TC.FINANCIAL_STATEMENT:
                 continue
 
@@ -543,6 +693,8 @@ def run_full_extraction(
         "table_extractions": table_extractions,
         "validation_report": validation_report.model_dump(),
         "structured_intelligence": structured_intelligence,
+        "evidence_map": evidence_map,
+        "raw_pages_text": all_pages,
         "standalone": legacy_result.get("standalone", {}),
         "consolidated": legacy_result.get("consolidated", {}),
         "consolidation_stats": {

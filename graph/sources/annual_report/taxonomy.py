@@ -442,9 +442,11 @@ def _classify_via_llm(
         taxonomy_list=taxonomy_str,
         start_page=start_page,
         end_page=end_page,
-        section_name=raw_section_name,
+        raw_section_name=section_name,
         section_text=block_text,
     )
+
+    logger.info("[Taxonomy] LLM classification invoked for section=%s", section_name)
 
     try:
         llm = get_llm(temperature=0.0, max_tokens=1024)
@@ -476,10 +478,17 @@ def _classify_via_llm(
                 "method": "llm",
             })
 
+        if mappings:
+            best = max(mappings, key=lambda m: m["confidence"])
+            logger.info(
+                "[Taxonomy] LLM classification succeeded: %s/%s (conf=%.2f)",
+                best["section_type"], best["section_subtype"], best["confidence"],
+            )
+
         return mappings
 
     except Exception as exc:
-        logger.debug(f"LLM call failed for block {section_name}: {exc}")
+        logger.warning("[Taxonomy] LLM classification failed for section=%s: %s", section_name, exc)
         return []
 
 

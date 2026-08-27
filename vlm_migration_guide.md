@@ -2,22 +2,12 @@
 
 This guide documents how to switch the extraction pipeline from the temporary cloud Groq LLM to your on-premise **Qwen 3 8B VLM**.
 
-## 1. Remove the Temporary Mock Mode
+## 1. Ensure Full VLM Processing
 
-To prevent API rate limits on the free Groq tier, the system currently forces only a single VLM target (the Balance Sheet) to be processed. 
-
-Before your demo, you must remove this limitation so the pipeline processes all detected financial tables.
+The pipeline should now process all detected VLM targets rather than reducing them to a single table. If you previously added a temporary limit, remove it so the full extraction workflow runs.
 
 *   Open `graph/sources/annual_report/extraction_pipeline.py`.
-*   Locate the `MOCK MODE (TEMPORARY)` block (around line 230).
-*   Delete or comment out the following lines:
-```python
-    # ── MOCK MODE (TEMPORARY) ──
-    if vlm_targets:
-        demo_target = next((t for t in vlm_targets if "balance_sheet" in t.target_id.lower()), vlm_targets[0])
-        _log(f"[Pipeline] MOCK MODE: Filtering {len(vlm_targets)} targets down to 1 ({demo_target.target_id}) to avoid rate limits.")
-        vlm_targets = [demo_target]
-```
+*   Confirm there is no block that filters `vlm_targets` down to a single target.
 
 ## 2. Update the LLM Configuration
 

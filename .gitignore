@@ -14,6 +14,14 @@ build/
 .idea/
 .vscode/
 *.json
+!sample_custom_spec.json
+!contracts/schemas/
+!contracts/schemas/*.json
 *.pdf
 *.xlsx
 .gemini/
+!frontend/package.json
+!frontend/package-lock.json
+!financial_statements_spec.json
+!msme_financial_metrics_spec.json
+!comprehensive_sections_spec.json
